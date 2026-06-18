@@ -196,12 +196,144 @@ def query_rag_feedback(session_id: str, student_code: str, error_type: str, cont
                 f"Prueba modificando la fracción de modificador orgánico."
             )
 
-    # 3. Guardar en Redis caché
-    cache_key = f"chromatox:rag_feedback:{session_id}"
+    # 3. Guardar en Redis caché o en ws_manager en memoria
     cache_data = {
         "error_type": error_type,
         "feedback": feedback_text,
         "context_details": context_details
     }
-    redis_client.set(cache_key, json.dumps(cache_data), ex=300) # Expira en 5 minutos
-    print(f"[RAG Task] Feedback guardado en Redis con la clave: {cache_key}")
+    from ws_manager import ws_manager
+    if ws_manager.use_redis:
+        try:
+            cache_key = f"chromatox:rag_feedback:{session_id}"
+            redis_client.set(cache_key, json.dumps(cache_data), ex=300) # Expira en 5 minutos
+            print(f"[RAG Task] Feedback guardado en Redis.")
+            return
+        except Exception as e:
+            print(f"[RAG Task] Error escribiendo en Redis: {e}. Fallback local.")
+            
+    ws_manager.set_rag_feedback_sync(session_id, cache_data)
+    print(f"[RAG Task] Feedback guardado localmente en ws_manager.")
+
+def trigger_rag_feedback(session_id: str, student_code: str, error_type: str, context_details: str):
+    """
+    Despacha la tarea RAG de forma asíncrona mediante Celery si Redis está disponible,
+    o en un hilo de fondo síncrono si Redis no está activo.
+    """
+    from ws_manager import ws_manager
+    if ws_manager.use_redis:
+        try:
+            query_rag_feedback.delay(session_id, student_code, error_type, context_details)
+            return
+        except Exception as e:
+            print(f"[RAG TRIGGER] Falló Celery .delay(): {e}. Ejecutando localmente.")
+            
+    # Fallback local síncrono en hilo de fondo
+    import threading
+    def run_local():
+        _query_rag_feedback_local(session_id, student_code, error_type, context_details)
+        
+    threading.Thread(target=run_local, daemon=True).start()
+
+def _query_rag_feedback_local(session_id: str, student_code: str, error_type: str, context_details: str):
+    """Ejecuta la lógica de búsqueda en ChromaDB y generación con Claude sin depender de Redis."""
+    print(f"[RAG Local] Generando feedback local para {session_id}...")
+    
+    # 1. Recuperar contexto de ChromaDB
+    collection = get_chromadb_collection()
+    retrieved_context = ""
+    
+    if collection:
+        try:
+            results = collection.query(
+                query_texts=[error_type + " " + context_details],
+                n_results=1
+            )
+            if results and results["documents"]:
+                retrieved_context = results["documents"][0][0]
+        except Exception as e:
+            print(f"[RAG Local] Error consultando ChromaDB: {e}")
+
+    # Fallback si no hay ChromaDB
+    if not retrieved_context:
+        if "presión" in error_type.lower() or "darcy" in error_type.lower():
+            retrieved_context = (
+                "Ecuación de Darcy: La presión depende de viscosidad, velocidad lineal y longitud, e inversamente del cuadrado del diámetro de partícula. "
+                "Límite crítico UHPLC ChroZen: 130 MPa."
+            )
+        elif "tailing" in error_type.lower() or "asimetría" in error_type.lower():
+            retrieved_context = (
+                "Tailing USP 49 exige T <= 2.0. Picos asimétricos causan errores de integración. "
+                "Se corrige ajustando pH o usando fases de silanoles desactivados."
+            )
+        else:
+            retrieved_context = (
+                "Resolución USP exige Rs >= 1.50 para garantizar separación en línea base. "
+                "Para mejorar Rs, modifica solvente orgánico, aumenta longitud de columna o disminuye partículas."
+            )
+
+    # 2. Generar con Claude si la clave API está disponible
+    feedback_text = ""
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if api_key and api_key.strip() and api_key != "${ANTHROPIC_API_KEY}":
+        try:
+            prompt = (
+                f"Actúa como un Tutor Inteligente y Senior en Química Farmacéutica de la Universidad de Antioquia.\n"
+                f"El estudiante '{student_code}' cometió el siguiente error cromatográfico: {error_type}.\n"
+                f"Detalles técnicos del simulador: {context_details}.\n"
+                f"Fundamento del microcurrículo:\n{retrieved_context}\n\n"
+                f"Escribe una 'Microcápsula Informativa Contextual' breve (máximo 3-4 líneas) en un tono académico, "
+                f"explicando el mecanismo del error físico-químico y forzando la fricción útil (HITL Gate): "
+                f"no le des la respuesta directa del parámetro correcto, sino guíalo a que deduzca la ecuación adecuada.\n"
+                f"Comienza directamente con el texto explicativo sin introducciones vacías como 'Aquí tienes...'."
+            )
+            with httpx.Client() as client:
+                response = client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": api_key,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json"
+                    },
+                    json={
+                        "model": "claude-3-5-sonnet-20241022",
+                        "max_tokens": 250,
+                        "messages": [{"role": "user", "content": prompt}]
+                    },
+                    timeout=10.0
+                )
+                if response.status_code == 200:
+                    feedback_text = response.json()["content"][0]["text"].strip()
+        except Exception as e:
+            print(f"[RAG Local] Error llamando a Claude: {e}")
+
+    # Fallback estático de feedback
+    if not feedback_text:
+        if "presión" in error_type.lower():
+            feedback_text = (
+                f"⚠️ ALERTA HIDRÁULICA: Has superado el límite estructural (130 MPa) del equipo. "
+                f"Recuerda la Ecuación de Darcy: la contrapresión es inversamente proporcional al cuadrado del diámetro de partícula (dp^2). "
+                f"¿Cómo afecta pasar de 5 µm a 1.7 µm si mantienes el mismo caudal?"
+            )
+        elif "tailing" in error_type.lower():
+            feedback_text = (
+                f"⚠️ ALERTA DE ASIMETRÍA: El factor de cola ({context_details}) supera el límite de USP 49 (T ≤ 2.0). "
+                f"Esto indica interacciones silanofílicas secundarias indeseadas. ¿Qué rol tiene el % de solvente orgánico "
+                f"y la polaridad en la fase reversa para reducir la cola?"
+            )
+        else:
+            feedback_text = (
+                f"⚠️ ALERTA DE IDONEIDAD: La resolución Rs ({context_details}) es inferior a 1.50 (USP 49). "
+                f"Para mejorar la resolución, debes incidir sobre N (longitud, partícula) o alfa (selectividad, cambiando de solvente). "
+                f"Prueba modificando la fracción de modificador orgánico."
+            )
+
+    # 3. Guardar en el ws_manager local
+    from ws_manager import ws_manager
+    cache_data = {
+        "error_type": error_type,
+        "feedback": feedback_text,
+        "context_details": context_details
+    }
+    ws_manager.set_rag_feedback_sync(session_id, cache_data)
+    print(f"[RAG Local] Feedback guardado localmente en ws_manager.")

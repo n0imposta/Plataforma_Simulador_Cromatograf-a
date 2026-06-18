@@ -27,6 +27,10 @@ async def lifespan(app: FastAPI):
     """Startup / shutdown tasks."""
     print("[CHROMATOX] Backend iniciando...")
 
+    # Inicializar WS Manager
+    from ws_manager import ws_manager
+    await ws_manager.init()
+
     # Inicializar Base de Datos
     try:
         await init_db()

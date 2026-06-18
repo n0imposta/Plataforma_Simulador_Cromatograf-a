@@ -182,7 +182,6 @@ async def gc_catalog():
         ],
     }
 
-
 @router.websocket("/ws/{session_id}")
 async def gc_websocket(websocket: WebSocket, session_id: UUID):
     """
@@ -194,23 +193,8 @@ async def gc_websocket(websocket: WebSocket, session_id: UUID):
     student_code = websocket.query_params.get("student_code", "Desconocido")
     full_name = websocket.query_params.get("full_name", "Estudiante")
     
-    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
-    async_redis = aioredis.Redis.from_url(redis_url, decode_responses=True)
-    
-    # Suscribirse al canal de comandos de este estudiante
-    pubsub = async_redis.pubsub()
-    await pubsub.subscribe(f"chromatox:student_commands:{session_id}")
-    
-    async def command_listener():
-        try:
-            async for message in pubsub.listen():
-                if message["type"] == "message":
-                    cmd_data = json.loads(message["data"])
-                    await websocket.send_json(cmd_data)
-        except Exception as e:
-            print(f"[GC WS] Error en listener de comandos: {e}")
-            
-    listener_task = asyncio.create_task(command_listener())
+    from ws_manager import ws_manager
+    await ws_manager.connect_student(str(session_id), websocket)
     
     try:
         while True:
@@ -250,7 +234,6 @@ async def gc_websocket(websocket: WebSocket, session_id: UUID):
                 })
                 
                 # Publicar actualización al docente
-                session_key = f"chromatox:active_session:{session_id}"
                 sdata = {
                     "session_id": str(session_id),
                     "student_code": student_code,
@@ -269,8 +252,7 @@ async def gc_websocket(websocket: WebSocket, session_id: UUID):
                         "detector": params.detector_type
                     }
                 }
-                await async_redis.set(session_key, json.dumps(sdata), ex=300)
-                await async_redis.publish("chromatox:instructor_updates", json.dumps({"type": "STUDENT_UPDATE", **sdata}))
+                await ws_manager.register_session(str(session_id), sdata)
 
             elif msg_type == "GOLAY_CURVE":
                 p = data["params"]
@@ -291,12 +273,7 @@ async def gc_websocket(websocket: WebSocket, session_id: UUID):
     except WebSocketDisconnect:
         pass
     finally:
-        listener_task.cancel()
-        await pubsub.unsubscribe(f"chromatox:student_commands:{session_id}")
-        await pubsub.close()
-        await async_redis.close()
-
-
+        await ws_manager.disconnect_student(str(session_id), websocket)
 def _gc_chromatogram(result) -> list[dict]:
     """Genera 150 puntos gaussianos para el cromatograma GC."""
     import math

@@ -51,13 +51,10 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
     # Generar un ID de sesión único
     session_id = f"ses-{uuid.uuid4().hex[:8]}"
 
-    # Registrar en Redis la sesión activa si es estudiante, para que el dashboard docente lo vea
+    # Registrar en el gestor la sesión activa si es estudiante, para que el dashboard docente lo vea
     if user.role == "student":
         try:
-            redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
-            r = redis.Redis.from_url(redis_url, decode_responses=True)
-            session_key = f"chromatox:active_session:{session_id}"
-            
+            from ws_manager import ws_manager
             sdata = {
                 "session_id": session_id,
                 "student_code": user.username,
@@ -69,11 +66,9 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
                 "timestamp": time.time(),
                 "metrics": {}
             }
-            r.set(session_key, json.dumps(sdata), ex=3600)  # Expira en 1 hora
-            # Publicar actualización al canal PubSub del docente
-            r.publish("chromatox:instructor_updates", json.dumps({"type": "STUDENT_UPDATE", **sdata}))
+            await ws_manager.register_session(session_id, sdata)
         except Exception as e:
-            print(f"[AUTH API] Advertencia al conectar con Redis: {e}")
+            print(f"[AUTH API] Error al registrar sesión en ws_manager: {e}")
 
     return {
         "ok": True,

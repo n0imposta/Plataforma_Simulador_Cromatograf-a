@@ -67,17 +67,22 @@ async def evaluate_justification_semantically(activity_num: int, text: str) -> t
     match_ratio = len(found) / len(req_keywords)
     
     # Nota base entre 1.0 y 5.0
-    keyword_score = 1.0 + (match_ratio * 4.0)
+    keyword_score = round(1.0 + (match_ratio * 4.0), 2)
     
-    # Feedback inicial
+    # Feedback inicial diferenciado según nota
     missing = [kw for kw in req_keywords if kw not in found]
-    if missing:
+    if keyword_score >= 4.5:
+        keyword_feedback = f"Excelente uso del lenguaje técnico y los conceptos fundamentales del microcurrículo (Nota: {keyword_score})."
+    elif keyword_score >= 3.0:
         keyword_feedback = (
             f"Tu justificación técnica es aceptable pero omitiste conceptos clave del microcurrículo: "
             f"{', '.join(missing)}. Intenta justificar usando el fundamento físico-químico."
         )
     else:
-        keyword_feedback = "Excelente uso del lenguaje técnico y los conceptos fundamentales del microcurrículo."
+        keyword_feedback = (
+            f"Tu justificación técnica es insuficiente (Nota: {keyword_score}). Omitiste conceptos clave del microcurrículo: "
+            f"{', '.join(missing)}. Intenta justificar usando el fundamento físico-químico."
+        )
 
     # 2. Evaluación con LLM (Claude 3.5 Sonnet) si está disponible
     api_key = os.getenv("ANTHROPIC_API_KEY")
@@ -225,6 +230,17 @@ async def get_all_grades(student_code: Optional[str] = None, db: AsyncSession = 
         students = result.scalars().all()
         return [s.to_dict() for s in students]
 
+@router.get("/history/{student_code}/{activity_number}")
+async def get_student_history(student_code: str, activity_number: int, db: AsyncSession = Depends(get_db)):
+    """Retorna la lista de intentos de un estudiante para una actividad específica."""
+    result = await db.execute(
+        select(ActivityLedger)
+        .filter_by(student_code=student_code, activity_number=activity_number)
+        .order_by(ActivityLedger.created_at.desc())
+    )
+    ledgers = result.scalars().all()
+    return [l.to_dict() for l in ledgers]
+
 @router.get("/errors-heatmap")
 async def get_errors_heatmap(db: AsyncSession = Depends(get_db)):
     """
@@ -293,16 +309,10 @@ async def get_errors_heatmap(db: AsyncSession = Depends(get_db)):
 @router.get("/rag-feedback/{session_id}")
 async def get_rag_feedback(session_id: str):
     """Obtiene y limpia la microcápsula RAG de tutoría correspondiente a la sesión."""
-    try:
-        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
-        r = redis.Redis.from_url(redis_url, decode_responses=True)
-        key = f"chromatox:rag_feedback:{session_id}"
-        val = r.get(key)
-        if val:
-            r.delete(key) # Consumir una sola vez
-            return {"ok": True, "data": json.loads(val)}
-    except Exception as e:
-        print(f"[TELEMETRY] Error al conectar a Redis para RAG: {e}")
+    from ws_manager import ws_manager
+    val = await ws_manager.get_rag_feedback(session_id)
+    if val:
+        return {"ok": True, "data": val}
     return {"ok": False, "message": "No hay feedback RAG pendiente."}
 
 
@@ -314,19 +324,11 @@ async def instructor_websocket(websocket: WebSocket):
     y gestiona comandos de bloqueo/desbloqueo (HITL) o feedback personalizado.
     """
     await websocket.accept()
+    from ws_manager import ws_manager
     
-    # Conexión Redis asíncrona
-    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
-    async_redis = aioredis.Redis.from_url(redis_url, decode_responses=True)
-    
-    # 1. Enviar snapshot inicial de sesiones activas en Redis
+    # 1. Enviar snapshot inicial de sesiones activas
     try:
-        keys = await async_redis.keys("chromatox:active_session:*")
-        active_sessions = []
-        for k in keys:
-            val = await async_redis.get(k)
-            if val:
-                active_sessions.append(json.loads(val))
+        active_sessions = await ws_manager.get_active_sessions()
         await websocket.send_json({
             "type": "ACTIVE_SESSIONS",
             "sessions": active_sessions
@@ -334,21 +336,8 @@ async def instructor_websocket(websocket: WebSocket):
     except Exception as e:
         print(f"[WS INSTRUCTOR] Error al enviar snapshot: {e}")
         
-    # 2. Suscribirse a actualizaciones de telemetría de estudiantes
-    pubsub = async_redis.pubsub()
-    await pubsub.subscribe("chromatox:instructor_updates")
-    
-    async def redis_listener():
-        try:
-            async for message in pubsub.listen():
-                if message["type"] == "message":
-                    # Reenviar el mensaje de actualización al WebSocket del docente
-                    await websocket.send_text(message["data"])
-        except Exception as e:
-            print(f"[WS INSTRUCTOR] Error en listener PubSub: {e}")
-            
-    # Lanzar listener de PubSub
-    listener_task = asyncio.create_task(redis_listener())
+    # 2. Registrar conexión en ws_manager
+    await ws_manager.connect_instructor(websocket)
     
     try:
         while True:
@@ -359,17 +348,15 @@ async def instructor_websocket(websocket: WebSocket):
             if cmd_type in ["LOCK", "UNLOCK", "SEND_FEEDBACK"]:
                 session_id = data.get("session_id")
                 if session_id:
-                    # Publicar el comando al canal del estudiante correspondiente
-                    student_channel = f"chromatox:student_commands:{session_id}"
-                    await async_redis.publish(student_channel, json.dumps(data))
+                    # Enviar el comando al estudiante
+                    await ws_manager.send_command_to_student(session_id, data)
                     
-                    # Actualizar estado en Redis de forma local
-                    session_key = f"chromatox:active_session:{session_id}"
-                    session_data_raw = await async_redis.get(session_key)
-                    if session_data_raw:
-                        sdata = json.loads(session_data_raw)
+                    # Actualizar estado de la sesión localmente
+                    sessions = await ws_manager.get_active_sessions()
+                    sdata = next((s for s in sessions if s.get("session_id") == session_id), None)
+                    if sdata:
                         sdata["status"] = "LOCKED" if cmd_type == "LOCK" else "ACTIVE"
-                        await async_redis.set(session_key, json.dumps(sdata), ex=300)
+                        await ws_manager.register_session(session_id, sdata)
                         
             elif cmd_type == "GRADE_OVERRIDE":
                 student_code = data.get("student_code")
@@ -391,7 +378,7 @@ async def instructor_websocket(websocket: WebSocket):
                             "student_code": student_code,
                             "grades": student.to_dict()
                         }
-                        await async_redis.publish("chromatox:instructor_updates", json.dumps(update_msg))
+                        await ws_manager.broadcast_student_update(update_msg)
                         
             elif cmd_type == "PING":
                 await websocket.send_json({"type": "PONG"})
@@ -399,7 +386,4 @@ async def instructor_websocket(websocket: WebSocket):
     except WebSocketDisconnect:
         print("[WS INSTRUCTOR] Docente desconectado.")
     finally:
-        listener_task.cancel()
-        await pubsub.unsubscribe("chromatox:instructor_updates")
-        await pubsub.close()
-        await async_redis.close()
+        await ws_manager.disconnect_instructor(websocket)

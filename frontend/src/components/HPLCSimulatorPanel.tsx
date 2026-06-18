@@ -347,6 +347,7 @@ export default function HPLCSimulatorPanel({
   
   // RAG feedback cache
   const [ragFeedback, setRagFeedback] = useState<string>("");
+  const [showRagPopup, setShowRagPopup] = useState<boolean>(false);
   const [showBlowout, setShowBlowout] = useState(false);
   const [wsStatus, setWsStatus] = useState<"connected" | "disconnected" | "connecting">("connecting");
 
@@ -421,6 +422,7 @@ export default function HPLCSimulatorPanel({
         const data = await res.json();
         if (data.ok && data.data) {
           setRagFeedback(data.data.feedback);
+          setShowRagPopup(true);
           setActiveTab("rag_tutor");
         }
       }
@@ -762,6 +764,36 @@ export default function HPLCSimulatorPanel({
         </div>
 
       </div>
+
+      {/* POPUP HOLOGRÁFICO TUTOR RAG */}
+      {showRagPopup && ragFeedback && (
+        <div className="fixed bottom-6 right-6 z-[99] max-w-sm bg-[#13112c]/90 border border-purple-500 rounded-xl p-4 shadow-[0_0_25px_rgba(168,85,247,0.3)] backdrop-blur-md animate-fadeIn flex flex-col space-y-2 text-slate-200">
+          <div className="flex justify-between items-center border-b border-purple-800 pb-1.5 font-mono text-[10px] font-bold text-purple-400">
+            <span className="flex items-center gap-1.5">🔮 Tutoría Académica RAG</span>
+            <button
+              onClick={() => setShowRagPopup(false)}
+              className="text-slate-500 hover:text-white font-bold text-xs cursor-pointer px-1 hover:bg-purple-950/40 rounded transition-colors"
+            >
+              ×
+            </button>
+          </div>
+          <p className="text-[11px] leading-relaxed italic text-slate-300">
+            "{ragFeedback}"
+          </p>
+          <div className="flex items-center justify-between text-[9px] text-purple-500 font-bold font-mono">
+            <span>Fundamento: Knox / Darcy / USP</span>
+            <button
+              onClick={() => {
+                setActiveTab("rag_tutor");
+                setShowRagPopup(false);
+              }}
+              className="text-purple-400 hover:text-purple-300 underline cursor-pointer"
+            >
+              Ver en detalles
+            </button>
+          </div>
+        </div>
+      )}
 
     </div>
   );

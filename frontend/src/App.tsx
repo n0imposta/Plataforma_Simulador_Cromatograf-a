@@ -138,6 +138,7 @@ export default function App() {
   const [isDark] = useState(true); // siempre dark — estética de laboratorio
   const [isLocked, setIsLocked] = useState(false);
   const [instructorFeedback, setInstructorFeedback] = useState<string | null>(null);
+  const [wsStatus, setWsStatus] = useState<"connecting" | "online" | "disconnected">("disconnected");
 
   // Enrutar según progreso o rol tras iniciar sesión
   useEffect(() => {
@@ -173,8 +174,12 @@ export default function App() {
     let timer: number;
 
     const connectWs = () => {
+      setWsStatus("connecting");
       try {
         ws = new WebSocket(wsUrl);
+        ws.onopen = () => {
+          setWsStatus("online");
+        };
         ws.onmessage = (event) => {
           const data = JSON.parse(event.data);
           if (data.type === "LOCK") {
@@ -185,10 +190,15 @@ export default function App() {
             setInstructorFeedback(data.feedback);
           }
         };
+        ws.onerror = () => {
+          setWsStatus("disconnected");
+        };
         ws.onclose = () => {
+          setWsStatus("disconnected");
           timer = window.setTimeout(connectWs, 5000);
         };
       } catch (e) {
+        setWsStatus("disconnected");
         timer = window.setTimeout(connectWs, 5000);
       }
     };
@@ -511,7 +521,13 @@ export default function App() {
               <span className="text-emerald-400 text-[9px]">Motor físico OK</span>
             </div>
             <span className="text-slate-800 text-[9px]">|</span>
-            <span className="text-slate-700 text-[9px]">WebSocket: conectando…</span>
+            <span className="text-slate-700 text-[9px]">
+              WebSocket: {
+                wsStatus === "online" ? "En línea 🟢" :
+                wsStatus === "connecting" ? "Conectando... 🟡" :
+                "Desconectado 🔴"
+              }
+            </span>
             <span className="text-slate-800 text-[9px]">|</span>
             <span className="text-slate-700 text-[9px]">RAG: ChromaDB listo</span>
           </div>

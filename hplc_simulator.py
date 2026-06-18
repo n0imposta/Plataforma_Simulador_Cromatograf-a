@@ -153,10 +153,10 @@ async def run_hplc(req: HPLCSimRequest):
     # Disparar RAG si hay errores de idoneidad (Rs < 1.5 o Tailing > 2.0)
     if result.rs < 1.50 or result.peak_a.tailing_factor_usp > 2.0 or result.peak_b.tailing_factor_usp > 2.0:
         try:
-            from tasks import query_rag_feedback
+            from tasks import trigger_rag_feedback
             error_lbl = "Baja Resolucion" if result.rs < 1.50 else "Alto Tailing"
             det = f"Rs={result.rs:.2f}, Tailing_A={result.peak_a.tailing_factor_usp:.2f}, Tailing_B={result.peak_b.tailing_factor_usp:.2f}"
-            query_rag_feedback.delay(str(req.session_id), "ESTUDIANTE", error_lbl, det)
+            trigger_rag_feedback(str(req.session_id), "ESTUDIANTE", error_lbl, det)
         except Exception as e:
             print(f"[HPLC API] Error encolando RAG: {e}")
 
@@ -222,23 +222,8 @@ async def hplc_websocket(websocket: WebSocket, session_id: str):
     student_code = websocket.query_params.get("student_code", "Desconocido")
     full_name = websocket.query_params.get("full_name", "Estudiante")
     
-    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
-    async_redis = aioredis.Redis.from_url(redis_url, decode_responses=True)
-    
-    # Suscribirse al canal de comandos de este estudiante
-    pubsub = async_redis.pubsub()
-    await pubsub.subscribe(f"chromatox:student_commands:{session_id}")
-    
-    async def command_listener():
-        try:
-            async for message in pubsub.listen():
-                if message["type"] == "message":
-                    cmd_data = json.loads(message["data"])
-                    await websocket.send_json(cmd_data)
-        except Exception as e:
-            print(f"[HPLC WS] Error en listener de comandos: {e}")
-            
-    listener_task = asyncio.create_task(command_listener())
+    from ws_manager import ws_manager
+    await ws_manager.connect_student(session_id, websocket)
     
     try:
         while True:
@@ -272,7 +257,6 @@ async def hplc_websocket(websocket: WebSocket, session_id: str):
                     })
                     
                     # Reportar el blowout en vivo
-                    session_key = f"chromatox:active_session:{session_id}"
                     sdata = {
                         "session_id": session_id,
                         "student_code": student_code,
@@ -284,17 +268,16 @@ async def hplc_websocket(websocket: WebSocket, session_id: str):
                         "timestamp": time.time(),
                         "metrics": {"pressure_mpa": result.backpressure_mpa, "rs": result.rs, "plates": result.n_plates}
                     }
-                    await async_redis.set(session_key, json.dumps(sdata), ex=300)
-                    await async_redis.publish("chromatox:instructor_updates", json.dumps({"type": "STUDENT_UPDATE", **sdata}))
+                    await ws_manager.register_session(session_id, sdata)
                     continue
                 
                 # Disparar RAG si hay errores de idoneidad en WS
                 if result.rs < 1.50 or result.peak_a.tailing_factor_usp > 2.0 or result.peak_b.tailing_factor_usp > 2.0:
                     try:
-                        from tasks import query_rag_feedback
+                        from tasks import trigger_rag_feedback
                         error_lbl = "Baja Resolucion" if result.rs < 1.50 else "Alto Tailing"
                         det = f"Rs={result.rs:.2f}, Tailing_A={result.peak_a.tailing_factor_usp:.2f}, Tailing_B={result.peak_b.tailing_factor_usp:.2f}"
-                        query_rag_feedback.delay(str(session_id), "ESTUDIANTE", error_lbl, det)
+                        trigger_rag_feedback(str(session_id), "ESTUDIANTE", error_lbl, det)
                     except Exception as e:
                         print(f"[HPLC WS] Error encolando RAG: {e}")
 
@@ -306,7 +289,6 @@ async def hplc_websocket(websocket: WebSocket, session_id: str):
                 
                 # Publicar actualización al docente
                 route_lbl = "uhplc" if "1.7um" in column_key else "hplc"
-                session_key = f"chromatox:active_session:{session_id}"
                 sdata = {
                     "session_id": session_id,
                     "student_code": student_code,
@@ -325,8 +307,7 @@ async def hplc_websocket(websocket: WebSocket, session_id: str):
                         "temp": params.oven_temp_c
                     }
                 }
-                await async_redis.set(session_key, json.dumps(sdata), ex=300)
-                await async_redis.publish("chromatox:instructor_updates", json.dumps({"type": "STUDENT_UPDATE", **sdata}))
+                await ws_manager.register_session(session_id, sdata)
 
             elif msg_type == "SPE_RUN":
                 p = data["params"]
@@ -351,7 +332,6 @@ async def hplc_websocket(websocket: WebSocket, session_id: str):
                 })
                 
                 # Publicar actualización al docente
-                session_key = f"chromatox:active_session:{session_id}"
                 sdata = {
                     "session_id": session_id,
                     "student_code": student_code,
@@ -368,8 +348,7 @@ async def hplc_websocket(websocket: WebSocket, session_id: str):
                         "pur_b": result_spe.purity_b_pct
                     }
                 }
-                await async_redis.set(session_key, json.dumps(sdata), ex=300)
-                await async_redis.publish("chromatox:instructor_updates", json.dumps({"type": "STUDENT_UPDATE", **sdata}))
+                await ws_manager.register_session(session_id, sdata)
 
             elif msg_type == "VAN_DEEMTER":
                 p = data["params"]
@@ -390,7 +369,4 @@ async def hplc_websocket(websocket: WebSocket, session_id: str):
     except WebSocketDisconnect:
         pass
     finally:
-        listener_task.cancel()
-        await pubsub.unsubscribe(f"chromatox:student_commands:{session_id}")
-        await pubsub.close()
-        await async_redis.close()
+        await ws_manager.disconnect_student(session_id, websocket)

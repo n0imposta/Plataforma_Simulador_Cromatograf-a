@@ -255,6 +255,207 @@ export default function InstructorDashboard() {
         : "border-transparent text-slate-500 hover:text-slate-300 hover:bg-[#161b22]"
     }`;
 
+  const handleExportPDF = () => {
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      alert("Por favor permite abrir ventanas emergentes para descargar el reporte.");
+      return;
+    }
+
+    const gradesRows = grades.map(s => `
+      <tr>
+        <td style="font-family: monospace; font-weight: bold;">${s.student_code}</td>
+        <td>${s.full_name}</td>
+        <td style="text-align: center;">${s.act1_grade !== null ? s.act1_grade.toFixed(1) : "—"}</td>
+        <td style="text-align: center;">${s.act2_grade !== null ? s.act2_grade.toFixed(1) : "—"}</td>
+        <td style="text-align: center;">${s.act3_grade !== null ? s.act3_grade.toFixed(1) : "—"}</td>
+        <td style="text-align: center;">${s.act4_grade !== null ? s.act4_grade.toFixed(1) : "—"}</td>
+        <td style="text-align: center;">${s.act5_grade !== null ? s.act5_grade.toFixed(1) : "—"}</td>
+        <td style="text-align: center;">${s.act6_grade !== null ? s.act6_grade.toFixed(1) : "—"}</td>
+        <td style="text-align: center;">${s.final_exam_grade !== null ? s.final_exam_grade.toFixed(2) : "—"}</td>
+        <td style="text-align: center; font-weight: bold; color: #7c3aed;">${s.final_grade.toFixed(2)}</td>
+      </tr>
+    `).join("");
+
+    const conceptRows = omittedConcepts.map(c => `
+      <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #e2e8f0; padding: 4px 0; font-size: 10px;">
+        <span style="text-transform: capitalize;">${c.concept}</span>
+        <span style="color: #ef4444; font-weight: bold;">Omitido ${c.count} veces</span>
+      </div>
+    `).join("");
+
+    const htmlContent = `
+      <html>
+        <head>
+          <title>Reporte de Calificaciones — CHROMATOX·EDU</title>
+          <style>
+            body {
+              font-family: 'Courier New', Courier, monospace;
+              padding: 30px;
+              color: #0f172a;
+              background-color: #ffffff;
+            }
+            .header {
+              border-bottom: 3px double #7c3aed;
+              padding-bottom: 12px;
+              margin-bottom: 25px;
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+            }
+            .title {
+              font-size: 20px;
+              font-weight: bold;
+              color: #1e1b4b;
+            }
+            .subtitle {
+              font-size: 10px;
+              color: #64748b;
+              margin-top: 5px;
+              font-family: sans-serif;
+            }
+            .section-title {
+              font-size: 12px;
+              font-weight: bold;
+              text-transform: uppercase;
+              color: #1e293b;
+              margin-top: 30px;
+              border-bottom: 2px solid #cbd5e1;
+              padding-bottom: 6px;
+              letter-spacing: 1px;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 12px;
+              font-size: 11px;
+            }
+            th, td {
+              border: 1px solid #94a3b8;
+              padding: 8px;
+              text-align: left;
+            }
+            th {
+              background-color: #f1f5f9;
+              color: #334155;
+              font-weight: bold;
+            }
+            .heatmap-grid {
+              display: grid;
+              grid-template-columns: repeat(5, 1fr);
+              gap: 12px;
+              margin-top: 12px;
+            }
+            .heatmap-card {
+              border: 1px solid #cbd5e1;
+              border-radius: 6px;
+              padding: 10px;
+              text-align: center;
+              background-color: #f8fafc;
+              font-size: 10px;
+            }
+            .heatmap-value {
+              font-size: 18px;
+              font-weight: bold;
+              color: #7c3aed;
+              margin-top: 5px;
+            }
+            @media print {
+              .no-print {
+                display: none;
+              }
+              body {
+                padding: 10px;
+              }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div>
+              <div class="title">🧪 Reporte General de Calificaciones</div>
+              <div class="subtitle">SISTEMA EVALUATIVO CHROMATOX·EDU — UNIVERSIDAD DE ANTIOQUIA / USS 2026</div>
+            </div>
+            <button class="no-print" onclick="window.print()" style="padding: 8px 16px; background-color: #7c3aed; color: white; border: none; border-radius: 6px; font-weight: bold; font-family: monospace; font-size: 11px; cursor: pointer; box-shadow: 0 4px 6px rgba(124, 58, 237, 0.15);">
+              🖨️ IMPRIMIR / PDF
+            </button>
+          </div>
+
+          <div class="section-title">Planilla de Rendimiento Ponderado</div>
+          <table>
+            <thead>
+              <tr>
+                <th>Código</th>
+                <th>Nombre del Estudiante</th>
+                <th style="text-align: center;">Act 1 (6%)</th>
+                <th style="text-align: center;">Act 2 (6%)</th>
+                <th style="text-align: center;">Act 3 (7%)</th>
+                <th style="text-align: center;">Act 4 (7%)</th>
+                <th style="text-align: center;">Act 5 (7%)</th>
+                <th style="text-align: center;">Act 6 (7%)</th>
+                <th style="text-align: center;">Examen (60%)</th>
+                <th style="text-align: center;">Nota Final</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${gradesRows}
+            </tbody>
+          </table>
+
+          <div style="display: grid; grid-template-columns: 3fr 2fr; gap: 30px; margin-top: 25px;">
+            <div>
+              <div class="section-title">Mapa de Calor Instrumental (Frecuencia de Errores)</div>
+              <div class="heatmap-grid">
+                <div class="heatmap-card">
+                  <div>Sobrepresión</div>
+                  <div class="heatmap-value">${heatmap.overpressure}</div>
+                </div>
+                <div class="heatmap-card">
+                  <div>Rs < 1.50</div>
+                  <div class="heatmap-value">${heatmap.poor_resolution}</div>
+                </div>
+                <div class="heatmap-card">
+                  <div>Cola > 2.0</div>
+                  <div class="heatmap-value">${heatmap.high_tailing}</div>
+                </div>
+                <div class="heatmap-card">
+                  <div>Horno Tmax</div>
+                  <div class="heatmap-value">${heatmap.temp_violation}</div>
+                </div>
+                <div class="heatmap-card">
+                  <div>Solvente Err</div>
+                  <div class="heatmap-value">${heatmap.solvent_mismatch}</div>
+                </div>
+              </div>
+            </div>
+            
+            <div>
+              <div class="section-title">Deficiencias Conceptuales (Omitidos en RAG)</div>
+              <div style="margin-top: 12px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 12px; background-color: #f8fafc;">
+                ${conceptRows || '<p style="color: #64748b; font-style: italic; font-size: 10px;">No se registran omisiones conceptuales.</p>'}
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-top: 40px; border-t: 1px solid #e2e8f0; padding-top: 10px; font-size: 9px; color: #94a3b8; text-align: center;">
+            Reporte generado automáticamente por CHROMATOX·EDU v1.0 — Fecha de descarga: ${new Date().toLocaleString("es-ES")}
+          </div>
+
+          <script>
+            window.onload = function() {
+              setTimeout(function() {
+                window.print();
+              }, 500);
+            }
+          </script>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+  };
+
   return (
     <div className="bg-[#0d1117] text-slate-300 font-mono text-xs rounded-xl p-4 border border-[#21262d] space-y-4">
       
@@ -270,6 +471,12 @@ export default function InstructorDashboard() {
           </span>
         </div>
         <div className="flex gap-2">
+          <button
+            onClick={handleExportPDF}
+            className="px-3 py-1.5 text-xs font-mono font-bold rounded-lg border border-purple-800 bg-purple-950/20 text-purple-400 hover:text-purple-300 hover:bg-purple-900/30 cursor-pointer transition-all shadow-md flex items-center gap-1.5"
+          >
+            📥 Exportar PDF
+          </button>
           <button className={activeTabStyle("supervision")} onClick={() => setActiveTab("supervision")}>📡 Supervisión en Vivo ({activeSessions.length})</button>
           <button className={activeTabStyle("grades")} onClick={() => setActiveTab("grades")}>📋 Calificaciones Ponderadas</button>
           <button className={activeTabStyle("heatmap")} onClick={() => setActiveTab("heatmap")}>🔥 Mapa de Calor y RAG</button>

@@ -44,6 +44,39 @@ export default function OnlineSessionManager({
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState<string>("");
   const [gradeResult, setGradeResult] = useState<any>(null);
+  const [history, setHistory] = useState<any[]>([]);
+
+  const fetchHistory = async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/telemetry/history/${studentCode}/${activityNumber}`);
+      if (res.ok) {
+        const data = await res.json();
+        setHistory(data);
+        
+        // Sincronizar el número de intentos realizados
+        if (data.length > 0) {
+          setAttempts(data.length);
+          // Si ya aprobó en algún intento anterior, marcar como completado
+          const approvedAttempt = data.find((h: any) => h.score >= 3.0);
+          if (approvedAttempt) {
+            setPhase("completed");
+            setGradeResult({
+              score_final: approvedAttempt.score,
+              score_sim: approvedAttempt.telemetry_data?.score_sim || 0,
+              score_semantic: approvedAttempt.telemetry_data?.score_semantic || 0
+            });
+            setFeedback(approvedAttempt.semantic_feedback);
+          }
+        }
+      }
+    } catch (e) {
+      console.log("Error al cargar el historial:", e);
+    }
+  };
+
+  useEffect(() => {
+    fetchHistory();
+  }, [studentCode, activityNumber]);
 
   // Timer
   useEffect(() => {
@@ -109,7 +142,7 @@ export default function OnlineSessionManager({
         const data = await res.json();
         setGradeResult(data);
         setFeedback(data.feedback);
-        setAttempts(prev => prev + 1);
+        fetchHistory(); // Esto actualizará el historial e incrementará attempts automáticamente
 
         if (data.score_final >= 3.0) {
           setPhase("completed");
@@ -273,6 +306,31 @@ export default function OnlineSessionManager({
           </p>
           <div className="text-[10px] text-slate-500 italic bg-[#0d1117] border border-[#21262d] rounded-lg p-2 max-w-sm mx-auto leading-relaxed">
             "{feedback}"
+          </div>
+        </div>
+      )}
+
+      {/* HISTORIAL DE INTENTOS */}
+      {history.length > 0 && (
+        <div className="border-t border-[#21262d] pt-4 mt-4 space-y-2">
+          <p className="text-[10px] uppercase text-slate-500 font-bold tracking-wider">📜 Historial de Intentos anteriores</p>
+          <div className="space-y-2.5 max-h-52 overflow-y-auto pr-1">
+            {history.map((h, i) => (
+              <div key={h.id || i} className="bg-[#161b22]/50 border border-[#21262d] rounded-xl p-3 space-y-2 text-[10px] font-mono leading-relaxed transition-all hover:border-purple-900/50">
+                <div className="flex justify-between items-center border-b border-[#21262d]/50 pb-1.5 text-slate-400">
+                  <span>Intento #{history.length - i} — {new Date(h.created_at).toLocaleString("es-ES")}</span>
+                  <span className={`font-bold px-1.5 py-0.5 rounded text-[9px] ${
+                    h.score >= 3.0 ? "bg-emerald-950/60 text-emerald-400" : "bg-red-950/60 text-red-400"
+                  }`}>
+                    Nota Final: {h.score.toFixed(2)}
+                  </span>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-slate-500 italic"><span className="text-slate-400 font-bold not-italic">Justificación:</span> "{h.justification}"</p>
+                  <p className="text-purple-400"><span className="text-slate-400 font-bold">Feedback del Tutor:</span> "{h.semantic_feedback}"</p>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
