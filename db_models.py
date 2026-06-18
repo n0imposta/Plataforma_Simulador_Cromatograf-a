@@ -34,6 +34,30 @@ AsyncSessionLocal = async_sessionmaker(bind=engine, class_=AsyncSession, expire_
 
 Base = declarative_base()
 
+import hashlib
+
+def hash_password(password: str) -> str:
+    """Retorna el hash SHA-256 de la contraseña con una sal fija."""
+    salt = "chromatox_salt_secret"
+    return hashlib.sha256((password + salt).encode('utf-8')).hexdigest()
+
+class User(Base):
+    __tablename__ = "users"
+    
+    username = Column(String, primary_key=True, index=True)  # Código de estudiante o id de docente
+    full_name = Column(String, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    role = Column(String, nullable=False)  # "student" o "instructor"
+    active_unit = Column(Integer, default=2)  # Progreso en el microcurrículo (Unidad 2 por defecto)
+
+    def to_dict(self) -> dict:
+        return {
+            "username": self.username,
+            "full_name": self.full_name,
+            "role": self.role,
+            "active_unit": self.active_unit,
+        }
+
 class StudentGrade(Base):
     __tablename__ = "student_grades"
     

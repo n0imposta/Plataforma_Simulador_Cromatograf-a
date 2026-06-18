@@ -91,7 +91,7 @@ export default function InstructorDashboard() {
   ]);
   const [grades, setGrades] = useState<StudentGrade[]>([]);
   const [activeSessions, setActiveSessions] = useState<ActiveSession[]>([]);
-  const [dbMode, setDbMode] = useState<"live" | "mock">("mock");
+  const [dbMode, setDbMode] = useState<"live" | "error" | "loading">("loading");
 
   // Estados del modal de rúbrica
   const [selectedStudent, setSelectedStudent] = useState<StudentGrade | null>(null);
@@ -109,6 +109,7 @@ export default function InstructorDashboard() {
 
   // Cargar datos estáticos e iniciales
   const fetchGradesAndHeatmap = async () => {
+    setDbMode("loading");
     try {
       const heatmapRes = await fetch(`${BACKEND_URL}/api/telemetry/errors-heatmap`);
       const gradesRes = await fetch(`${BACKEND_URL}/api/telemetry/grades`);
@@ -125,16 +126,13 @@ export default function InstructorDashboard() {
           setGrades(gradesData);
           setDbMode("live");
         }
+      } else {
+        setDbMode("error");
       }
     } catch (e) {
-      console.log("Conexión al backend fallida, operando en modo simulación.");
-      setDbMode("mock");
-      // Fallback Mock Data
-      setGrades([
-        { student_code: "QF-2026-001", full_name: "Alejandro Bedoya", act1_grade: 4.5, act2_grade: 4.8, act3_grade: 3.5, act4_grade: 4.0, act5_grade: 4.2, act6_grade: 4.0, final_exam_grade: 4.2, final_exam_comments: "Excelente defensa de Van Deemter.", final_exam_rubric: { matrix_effect: 4.2, data_integrity: 4.0, defense: 4.4 }, final_grade: 4.21 },
-        { student_code: "QF-2026-012", full_name: "Mariana Restrepo", act1_grade: 3.8, act2_grade: 4.0, act3_grade: 2.8, act4_grade: 3.5, act5_grade: 4.1, act6_grade: 4.0, final_exam_grade: 3.8, final_exam_comments: "Respuestas directas pero completas.", final_exam_rubric: { matrix_effect: 3.8, data_integrity: 3.5, defense: 4.1 }, final_grade: 3.76 },
-        { student_code: "QF-2026-024", full_name: "Santiago Gómez", act1_grade: 4.0, act2_grade: 3.5, act3_grade: 4.2, act4_grade: 1.5, act5_grade: 3.0, act6_grade: 3.5, final_exam_grade: null, final_exam_comments: null, final_exam_rubric: null, final_grade: 1.04 }
-      ]);
+      console.log("Conexión al backend fallida:", e);
+      setDbMode("error");
+      setGrades([]);
     }
   };
 
@@ -232,20 +230,7 @@ export default function InstructorDashboard() {
         alert("Error al registrar rúbrica en base de datos.");
       }
     } catch (e) {
-      // Fallback local en modo mock
-      setGrades(prev =>
-        prev.map(s => s.student_code === selectedStudent.student_code ? {
-          ...s,
-          final_exam_grade: finalScore,
-          final_exam_comments: rubric.comments,
-          final_exam_rubric: {
-            matrix_effect: rubric.matrix_effect,
-            data_integrity: rubric.data_integrity,
-            defense: rubric.defense
-          },
-          final_grade: parseFloat((s.final_grade - (s.final_exam_grade ?? 0)*0.6 + finalScore*0.6).toFixed(2))
-        } : s)
-      );
+      alert("Error al registrar la calificación. Por favor verifica la conexión con el servidor.");
       setSelectedStudent(null);
     }
   };
@@ -281,7 +266,7 @@ export default function InstructorDashboard() {
             Supervisión In Vivo y Gobernanza Híbrida 2026
           </span>
           <span className="text-[10px] text-slate-600 font-sans">
-            Base: {dbMode === "live" ? "🟢 SQLite/PostgreSQL Activo" : "🟡 Datos de Demostración"}
+            Base: {dbMode === "live" ? "🟢 Base de datos en Producción" : dbMode === "loading" ? "🟡 Cargando datos..." : "🔴 Error de conexión"}
           </span>
         </div>
         <div className="flex gap-2">
@@ -290,6 +275,12 @@ export default function InstructorDashboard() {
           <button className={activeTabStyle("heatmap")} onClick={() => setActiveTab("heatmap")}>🔥 Mapa de Calor y RAG</button>
         </div>
       </div>
+
+      {dbMode === "error" && (
+        <div className="bg-red-950/20 border border-red-900/60 rounded-lg p-2.5 text-red-400">
+          ⚠️ No se pudo establecer conexión con el servidor. Por favor verifica que el backend esté corriendo y sea accesible.
+        </div>
+      )}
 
       {/* TAB: SUPERVISIÓN EN VIVO */}
       {activeTab === "supervision" && (

@@ -15,7 +15,7 @@
  */
 
 import { useState, useEffect } from "react";
-import { WS_BACKEND_URL } from "./config";
+import { BACKEND_URL, WS_BACKEND_URL } from "./config";
 import GCSimulatorPanel       from "./components/GCSimulatorPanel";
 import VanDeemterChart        from "./components/VanDeemterChart";
 import HPLCSimulatorPanel     from "./components/HPLCSimulatorPanel";
@@ -48,16 +48,8 @@ interface AppSession {
   activeUnit: number;
 }
 
-// ─── MOCK SESSION ─────────────────────────────────────────────
-
-const DEMO_SESSION: AppSession = {
-  sessionId:   "ses-demo-" + Math.random().toString(36).slice(2, 8),
-  studentCode: "QF-2026-047",
-  fullName:    "Demo — QF 2026",
-  role:        "student",
-  activeCase:  1,
-  activeUnit:  3,
-};
+// ─── TYPES ────────────────────────────────────────────────────
+// AppSession, Route, Role defined at root level
 
 // ─── NAV ITEMS ────────────────────────────────────────────────
 
@@ -137,15 +129,45 @@ function UnitProgress({ activeUnit }: { activeUnit: number }) {
 // ─── MAIN APP ────────────────────────────────────────────────
 
 export default function App() {
-  const [session, setSession] = useState<AppSession>(DEMO_SESSION);
-  const [route, setRoute] = useState<Route>("hplc");
+  const [session, setSession] = useState<AppSession | null>(() => {
+    const saved = localStorage.getItem("chromatox_session");
+    return saved ? JSON.parse(saved) : null;
+  });
+  const [route, setRoute] = useState<Route>("spe");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [isDark] = useState(true); // siempre dark — estética de laboratorio
   const [isLocked, setIsLocked] = useState(false);
   const [instructorFeedback, setInstructorFeedback] = useState<string | null>(null);
 
+  // Enrutar según progreso o rol tras iniciar sesión
+  useEffect(() => {
+    if (!session) return;
+    if (session.role === "instructor") {
+      setRoute("dashboard");
+    } else {
+      const unitRouteMap: Record<number, Route> = {
+        2: "spe",
+        3: "hplc",
+        4: "uhplc",
+        5: "gc",
+        6: "quantitative"
+      };
+      setRoute(unitRouteMap[session.activeUnit] || "spe");
+    }
+  }, [session]);
+
+  const handleActivityValidated = (nextUnit: number) => {
+    setSession(s => {
+      if (!s) return null;
+      const updated = { ...s, activeUnit: nextUnit };
+      localStorage.setItem("chromatox_session", JSON.stringify(updated));
+      return updated;
+    });
+  };
+
   // WebSocket global de estudiante para telemetría activa y compuertas HITL
   useEffect(() => {
+    if (!session) return;
     const wsUrl = `${WS_BACKEND_URL}/api/hplc/ws/${session.sessionId}?student_code=${session.studentCode}&full_name=${encodeURIComponent(session.fullName)}`;
     let ws: WebSocket | null = null;
     let timer: number;
@@ -176,7 +198,7 @@ export default function App() {
       ws?.close();
       clearTimeout(timer);
     };
-  }, [session.sessionId, session.studentCode, session.fullName]);
+  }, [session?.sessionId, session?.studentCode, session?.fullName]);
 
   // Telemetría de simulación en vivo para calificar en tiempo real
   const [hplcMetrics, setHplcMetrics] = useState<any>(null);
@@ -184,6 +206,7 @@ export default function App() {
 
   // Cálculo de notas de simulación en tiempo real (0.0 a 5.0)
   const currentSimScore = (() => {
+    if (!session) return 1.0;
     if (route === "hplc" || route === "uhplc") {
       if (!hplcMetrics) return 1.0;
       if (hplcMetrics.errors && hplcMetrics.errors.length > 0) return 1.0; // Falla hidráulica
@@ -221,7 +244,7 @@ export default function App() {
   })();
 
   // Filtrar nav por rol
-  const visibleNav = NAV_ITEMS.filter(n => n.roles.includes(session.role));
+  const visibleNav = session ? NAV_ITEMS.filter(n => n.roles.includes(session.role)) : [];
 
   // Notificaciones de alerta (mockup — en prod viene por WS)
   const [alerts, setAlerts] = useState(0);
@@ -231,6 +254,7 @@ export default function App() {
   }, []);
 
   const renderContent = () => {
+    if (!session) return null;
     switch (route) {
       case "hplc":
         return (
@@ -242,9 +266,7 @@ export default function App() {
               activityNumber={3}
               currentSimScore={currentSimScore}
               telemetryData={currentTelemetryData}
-              onActivityValidated={(_score) => {
-                setSession(s => ({ ...s, activeUnit: 4 })); // Desbloquea UHPLC
-              }}
+              onActivityValidated={(_score) => handleActivityValidated(4)}
             />
             <HPLCSimulatorPanel
               sessionId={session.sessionId}
@@ -263,9 +285,7 @@ export default function App() {
               activityNumber={4}
               currentSimScore={currentSimScore}
               telemetryData={currentTelemetryData}
-              onActivityValidated={(_score) => {
-                setSession(s => ({ ...s, activeUnit: 5 })); // Desbloquea GC
-              }}
+              onActivityValidated={(_score) => handleActivityValidated(5)}
             />
             <HPLCSimulatorPanel
               sessionId={session.sessionId + "-uhplc"}
@@ -309,9 +329,7 @@ export default function App() {
               activityNumber={2}
               currentSimScore={currentSimScore}
               telemetryData={currentTelemetryData}
-              onActivityValidated={(_score) => {
-                setSession(s => ({ ...s, activeUnit: 3 })); // Desbloquea HPLC
-              }}
+              onActivityValidated={(_score) => handleActivityValidated(3)}
             />
             <SPEWorkspacePanel
               sessionId={session.sessionId}
@@ -329,17 +347,13 @@ export default function App() {
               activityNumber={6}
               currentSimScore={5.0}
               telemetryData={currentTelemetryData}
-              onActivityValidated={(_score) => {
-                setSession(s => ({ ...s, activeUnit: 6 }));
-              }}
+              onActivityValidated={(_score) => handleActivityValidated(6)}
             />
             <QuantitativeWorkspace
               sessionId={session.sessionId}
               studentCode={session.studentCode}
               fullName={session.fullName}
-              onActivityValidated={(_score) => {
-                setSession(s => ({ ...s, activeUnit: 6 }));
-              }}
+              onActivityValidated={(_score) => handleActivityValidated(6)}
             />
           </div>
         );
@@ -352,8 +366,12 @@ export default function App() {
     }
   };
 
-    return (
-      <div className={`flex h-screen bg-[#010409] text-slate-300 font-mono overflow-hidden ${isDark ? "dark" : ""}`}>
+  if (!session) {
+    return <LoginScreen onLoginSuccess={setSession} />;
+  }
+
+  return (
+    <div className={`flex h-screen bg-[#010409] text-slate-300 font-mono overflow-hidden ${isDark ? "dark" : ""}`}>
   
         {/* OVERLAY DE BLOQUEO DE INSTRUCTOR */}
         {isLocked && (
@@ -450,21 +468,13 @@ export default function App() {
             </span>
           </div>
           <div className="flex items-center gap-3">
-            {/* Rol toggle (demo) */}
-            <button
-              onClick={() => {
-                const nextRole = session.role === "instructor" ? "student" : "instructor";
-                setSession(s => ({ ...s, role: nextRole }));
-                setRoute(nextRole === "instructor" ? "dashboard" : "hplc");
-              }}
-              className="bg-[#161b22] border border-[#30363d] text-slate-500 hover:text-slate-300
-                         rounded px-2 py-0.5 text-[10px] cursor-pointer"
-            >
+            {/* Información del Rol */}
+            <span className="bg-[#161b22] border border-[#30363d] text-slate-400 rounded px-2.5 py-0.5 text-[10px]">
               {session.role === "instructor" ? "👨‍🏫 Docente" : "👩‍🔬 Estudiante"}
-            </button>
+            </span>
 
             {/* Alertas */}
-            {alerts > 0 && (
+            {session.role === "instructor" && alerts > 0 && (
               <button
                 onClick={() => { setRoute("dashboard"); setAlerts(0); }}
                 className="relative bg-red-900/40 border border-red-800 text-red-400
@@ -474,8 +484,17 @@ export default function App() {
               </button>
             )}
 
-            {/* Session code */}
-            <span className="text-slate-700 text-[10px]">{session.sessionId.slice(0, 16)}</span>
+            {/* Cerrar Sesión */}
+            <button
+              onClick={() => {
+                localStorage.removeItem("chromatox_session");
+                setSession(null);
+              }}
+              className="bg-red-950/30 hover:bg-red-900/40 border border-red-900 text-red-400 hover:text-red-300
+                         rounded px-2.5 py-0.5 text-[10px] cursor-pointer transition-colors"
+            >
+              🚪 Cerrar Sesión
+            </button>
           </div>
         </header>
 
@@ -500,6 +519,195 @@ export default function App() {
             CHROMATOX·EDU v1.0 — UdeA QF 2026 — Caso {session.activeCase}
           </span>
         </footer>
+      </div>
+    </div>
+  );
+}
+
+// ─── LOGIN & REGISTER SCREEN ──────────────────────────────────
+
+function LoginScreen({ onLoginSuccess }: { onLoginSuccess: (session: AppSession) => void }) {
+  const [isLogin, setIsLogin] = useState(true);
+  const [username, setUsername] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setMessage("");
+
+    if (!username || !password) {
+      setError("Por favor completa todos los campos obligatorios.");
+      return;
+    }
+
+    if (!isLogin) {
+      if (!fullName) {
+        setError("Por favor ingresa tu nombre completo.");
+        return;
+      }
+      if (password !== confirmPassword) {
+        setError("Las contraseñas no coinciden.");
+        return;
+      }
+    }
+
+    setLoading(true);
+
+    try {
+      const endpoint = isLogin ? "/api/auth/login" : "/api/auth/register";
+      const body = isLogin
+        ? { username, password }
+        : { username, password, full_name: fullName };
+
+      const res = await fetch(`${BACKEND_URL}${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.detail || "Ocurrió un error inesperado.");
+        setLoading(false);
+        return;
+      }
+
+      if (isLogin) {
+        const userSession: AppSession = {
+          sessionId: data.session_id,
+          studentCode: data.student_code,
+          fullName: data.full_name,
+          role: data.role,
+          activeCase: 1,
+          activeUnit: data.active_unit,
+        };
+        localStorage.setItem("chromatox_session", JSON.stringify(userSession));
+        onLoginSuccess(userSession);
+      } else {
+        setMessage(data.message || "Usuario registrado correctamente. Inicia sesión.");
+        setIsLogin(true);
+        setPassword("");
+        setConfirmPassword("");
+      }
+    } catch (err) {
+      setError("Error de red. Asegúrate de que el servidor esté en línea.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-[#010409] font-mono p-4 text-xs text-slate-300">
+      <div className="w-full max-w-sm rounded-xl border border-[#21262d] bg-[#0d1117]/85 p-6 shadow-2xl backdrop-blur-md">
+        
+        {/* LOGO */}
+        <div className="flex items-center justify-center gap-2 mb-6 text-center">
+          <span className="text-emerald-400 text-base animate-pulse">●</span>
+          <span className="text-slate-200 text-sm font-extrabold tracking-wider uppercase">CHROMATOX·EDU</span>
+        </div>
+
+        {/* TABS */}
+        <div className="flex border-b border-[#21262d] mb-4">
+          <button
+            onClick={() => { setIsLogin(true); setError(""); setMessage(""); }}
+            className={`flex-1 pb-2 text-center font-bold border-b-2 cursor-pointer transition-colors ${
+              isLogin ? "border-purple-500 text-purple-400 font-bold" : "border-transparent text-slate-500"
+            }`}
+          >
+            Iniciar Sesión
+          </button>
+          <button
+            onClick={() => { setIsLogin(false); setError(""); setMessage(""); }}
+            className={`flex-1 pb-2 text-center font-bold border-b-2 cursor-pointer transition-colors ${
+              !isLogin ? "border-purple-500 text-purple-400 font-bold" : "border-transparent text-slate-500"
+            }`}
+          >
+            Registrarse
+          </button>
+        </div>
+
+        {/* FORM */}
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {error && <div className="rounded-lg border border-red-800/40 bg-red-950/20 p-2.5 text-red-400">{error}</div>}
+          {message && <div className="rounded-lg border border-emerald-800/40 bg-emerald-950/20 p-2.5 text-emerald-400">{message}</div>}
+
+          <div>
+            <label className="block text-slate-500 font-bold mb-1">
+              {isLogin ? "Código de Usuario / Estudiante:" : "Código de Estudiante (ej. QF-2026-001):"}
+            </label>
+            <input
+              type="text"
+              required
+              className="w-full rounded border border-[#30363d] bg-[#0d1117] px-2.5 py-1.5 text-slate-200 outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
+              value={username}
+              onChange={e => setUsername(e.target.value)}
+              placeholder={isLogin ? "ej. estudiante o docente" : "ej. QF-2026-001"}
+            />
+          </div>
+
+          {!isLogin && (
+            <div>
+              <label className="block text-slate-500 font-bold mb-1">Nombre Completo:</label>
+              <input
+                type="text"
+                required
+                className="w-full rounded border border-[#30363d] bg-[#0d1117] px-2.5 py-1.5 text-slate-200 outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
+                value={fullName}
+                onChange={e => setFullName(e.target.value)}
+                placeholder="Nombre y Apellidos"
+              />
+            </div>
+          )}
+
+          <div>
+            <label className="block text-slate-500 font-bold mb-1">Contraseña:</label>
+            <input
+              type="password"
+              required
+              className="w-full rounded border border-[#30363d] bg-[#0d1117] px-2.5 py-1.5 text-slate-200 outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              placeholder="••••••••"
+            />
+          </div>
+
+          {!isLogin && (
+            <div>
+              <label className="block text-slate-500 font-bold mb-1">Confirmar Contraseña:</label>
+              <input
+                type="password"
+                required
+                className="w-full rounded border border-[#30363d] bg-[#0d1117] px-2.5 py-1.5 text-slate-200 outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
+                value={confirmPassword}
+                onChange={e => setConfirmPassword(e.target.value)}
+                placeholder="••••••••"
+              />
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full rounded-lg bg-purple-700 hover:bg-purple-600 disabled:opacity-40 text-white font-bold py-2 cursor-pointer transition-colors"
+          >
+            {loading ? "Procesando..." : isLogin ? "Ingresar" : "Crear Cuenta"}
+          </button>
+        </form>
+
+        {/* DEMO ACCREDITATIONS HELP */}
+        {isLogin && (
+          <div className="mt-6 border-t border-[#21262d] pt-4 text-[10px] text-slate-600 space-y-1 font-sans">
+            <p className="font-bold">🔑 Cuentas por defecto para pruebas:</p>
+            <p>• <strong>Profesor:</strong> docente / docente2026</p>
+            <p>• <strong>Estudiante:</strong> estudiante / estudiante2026</p>
+          </div>
+        )}
       </div>
     </div>
   );

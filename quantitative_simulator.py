@@ -194,6 +194,15 @@ async def validate_case(req: ValidateCaseRequest, db: AsyncSession = Depends(get
     # Mejor intento
     if student.act6_grade is None or final_score > student.act6_grade:
         student.act6_grade = final_score
+
+    # Actualizar progreso
+    if final_score >= 3.0:
+        from db_models import User
+        res_user = await db.execute(select(User).filter_by(username=req.student_code))
+        user = res_user.scalars().first()
+        if user:
+            if user.active_unit < 6:
+                user.active_unit = 6
         
     await db.flush()
     

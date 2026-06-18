@@ -16,6 +16,7 @@ from gc_simulator import router as gc_router
 from hplc_simulator import router as hplc_router
 from telemetry import router as telemetry_router
 from quantitative_simulator import router as quant_router
+from auth import router as auth_router
 from db_models import init_db
 
 
@@ -30,6 +31,39 @@ async def lifespan(app: FastAPI):
     try:
         await init_db()
         print("[CHROMATOX] Base de datos inicializada correctamente.")
+        
+        # Sembrar usuarios iniciales si no existen
+        from sqlalchemy.future import select
+        from db_models import AsyncSessionLocal, User, StudentGrade, hash_password
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(select(User))
+            users = result.scalars().all()
+            if not users:
+                print("[CHROMATOX] Sembrando usuarios iniciales...")
+                docente = User(
+                    username="docente",
+                    full_name="Profesor de Cromatografía",
+                    hashed_password=hash_password("docente2026"),
+                    role="instructor",
+                    active_unit=2
+                )
+                estudiante = User(
+                    username="estudiante",
+                    full_name="Estudiante Demo",
+                    hashed_password=hash_password("estudiante2026"),
+                    role="student",
+                    active_unit=2
+                )
+                session.add_all([docente, estudiante])
+                
+                # También crear su planilla de notas
+                std_grade = StudentGrade(
+                    student_code="estudiante",
+                    full_name="Estudiante Demo"
+                )
+                session.add(std_grade)
+                await session.commit()
+                print("[CHROMATOX] Usuarios sembrados con éxito.")
     except Exception as e:
         print(f"[CHROMATOX] Error al inicializar la base de datos: {e}")
 
@@ -88,6 +122,7 @@ app.include_router(gc_router)     # /api/gc/*
 app.include_router(hplc_router)   # /api/hplc/*
 app.include_router(telemetry_router) # /api/telemetry/*
 app.include_router(quant_router)  # /api/quantitative/*
+app.include_router(auth_router)   # /api/auth/*
 
 
 # ─── HEALTH ──────────────────────────────────────────────────

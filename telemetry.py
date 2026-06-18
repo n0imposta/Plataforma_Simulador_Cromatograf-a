@@ -167,6 +167,16 @@ async def submit_activity(req: ActivitySubmitSchema, db: AsyncSession = Depends(
     if current_grade is None or final_activity_score > current_grade:
         setattr(student, grade_field, final_activity_score)
 
+    # Actualizar el progreso del estudiante (active_unit) si aprobó la actividad (nota >= 3.0)
+    if final_activity_score >= 3.0:
+        from db_models import User
+        res_user = await db.execute(select(User).filter_by(username=req.student_code))
+        user = res_user.scalars().first()
+        if user:
+            next_unit = req.activity_number + 1
+            if next_unit > user.active_unit:
+                user.active_unit = next_unit
+
     await db.flush() # Guardar cambios en sesión
 
     return {
