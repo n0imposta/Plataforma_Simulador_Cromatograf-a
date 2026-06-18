@@ -73,6 +73,184 @@ interface ActiveSession {
   };
 }
 
+function ActiveStudentCard({
+  s,
+  customMessages,
+  setCustomMessages,
+  sendCommand,
+}: {
+  s: ActiveSession;
+  customMessages: Record<string, string>;
+  setCustomMessages: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  sendCommand: (type: "LOCK" | "UNLOCK" | "SEND_FEEDBACK", session_id: string, extra?: any) => void;
+}) {
+  const [history, setHistory] = useState<any[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+
+  useEffect(() => {
+    const fetchHistory = async () => {
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/telemetry/history/${s.student_code}/${s.active_unit}`);
+        if (res.ok) {
+          const data = await res.json();
+          setHistory(data);
+        }
+      } catch (e) {
+        console.log("Error al cargar historial para docente:", e);
+      }
+    };
+    fetchHistory();
+  }, [s.student_code, s.active_unit]);
+
+  return (
+    <div className={`bg-[#161b22] border rounded-xl p-3 flex flex-col justify-between transition-all hover:scale-[1.01] ${
+      s.status === "BLOWOUT" ? "border-red-600 bg-red-950/10 shadow-lg shadow-red-950/20" : 
+      s.status === "LOCKED" ? "border-amber-600 bg-amber-950/5" : "border-[#21262d]"
+    }`}>
+      {/* Student Title */}
+      <div className="flex justify-between items-start border-b border-[#21262d] pb-2 mb-2">
+        <div>
+          <h4 className="text-slate-200 font-bold text-xs uppercase">{s.full_name}</h4>
+          <p className="text-[9px] text-slate-600 font-mono mt-0.5">{s.student_code}</p>
+        </div>
+        <span className={`text-[9px] font-bold rounded px-1.5 py-0.5 uppercase tracking-wider ${
+          s.status === "BLOWOUT" ? "bg-red-800 text-white animate-pulse" :
+          s.status === "LOCKED" ? "bg-amber-600 text-black" : "bg-emerald-950/60 text-emerald-400"
+        }`}>
+          {s.status}
+        </span>
+      </div>
+
+      {/* Student Metrics */}
+      <div className="space-y-1.5 py-1 text-[10px] flex-1">
+        <div className="flex justify-between">
+          <span className="text-slate-600">Simulador Activo:</span>
+          <span className="text-purple-400 font-bold uppercase">{s.route} (U{s.active_unit})</span>
+        </div>
+
+        {s.route === "spe" ? (
+          <>
+            <div className="flex justify-between">
+              <span className="text-slate-600">Rec. Ibuprofeno:</span>
+              <span className="text-slate-300 font-bold">{(s.metrics.rec_b ?? 0).toFixed(1)}%</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-600">Pureza Colectada:</span>
+              <span className="text-slate-300 font-bold">{(s.metrics.pur_b ?? 0).toFixed(1)}%</span>
+            </div>
+          </>
+        ) : s.route === "quantitative" ? (
+          <>
+            <div className="flex justify-between">
+              <span className="text-slate-600">Fármaco USP:</span>
+              <span className="text-slate-300 font-bold">{s.metrics.compound}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-600">Linealidad R²:</span>
+              <span className="text-slate-300 font-bold">{s.metrics.r_squared}</span>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="flex justify-between">
+              <span className="text-slate-600">Presión actual:</span>
+              <span className={`${s.status === "BLOWOUT" ? "text-red-400 font-extrabold animate-pulse" : "text-slate-300"}`}>
+                {s.metrics.pressure_mpa ? `${s.metrics.pressure_mpa.toFixed(1)} MPa` : (s.metrics.pressure_kpa ? `${s.metrics.pressure_kpa.toFixed(0)} kPa` : "—")}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-600">Resolución (Rs):</span>
+              <span className="text-slate-300">{(s.metrics.rs ?? 0).toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-600">Platos (N):</span>
+              <span className="text-slate-300">{(s.metrics.plates ?? 0).toLocaleString()}</span>
+            </div>
+          </>
+        )}
+
+        {/* Historial en el Card */}
+        <div className="border-t border-[#21262d]/50 pt-1.5 mt-1.5 space-y-1">
+          <div className="flex justify-between items-center">
+            <span className="text-slate-600 font-bold">Historial de Envíos:</span>
+            <span className="text-slate-400 font-bold bg-[#0d1117] px-1.5 py-0.5 rounded text-[9px]">
+              Intentos: {history.length}
+            </span>
+          </div>
+          {history.length > 0 ? (
+            <div className="space-y-1">
+              <div className="flex justify-between">
+                <button
+                  onClick={() => setShowHistory(!showHistory)}
+                  className="text-purple-400 hover:text-purple-300 hover:underline text-[9px] cursor-pointer"
+                >
+                  {showHistory ? "▲ Ocultar Envíos" : "▼ Ver Envíos y Notas"}
+                </button>
+              </div>
+              {showHistory && (
+                <div className="bg-[#0d1117] border border-[#21262d] rounded p-1.5 max-h-24 overflow-y-auto space-y-1 font-mono text-[9px]">
+                  {history.map((h, i) => (
+                    <div key={i} className="flex justify-between border-b border-[#21262d]/40 pb-0.5 last:border-b-0 last:pb-0">
+                      <span className="text-slate-500">Envío #{history.length - i}:</span>
+                      <span className={`font-bold ${h.score >= 3.0 ? "text-emerald-400" : "text-red-400"}`}>
+                        {h.score.toFixed(2)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-slate-600 italic text-[9px]">Sin envíos en esta unidad.</p>
+          )}
+        </div>
+      </div>
+
+      {/* HITL Controls */}
+      <div className="pt-2 border-t border-[#21262d] mt-2 space-y-2">
+        {/* Chat rápido */}
+        <div className="flex gap-1">
+          <input
+            type="text"
+            placeholder="Enviar sugerencia rápida..."
+            className="flex-1 bg-[#0d1117] border border-[#30363d] rounded px-2 py-1 text-slate-300 text-[10px] outline-none"
+            value={customMessages[s.session_id] ?? ""}
+            onChange={e => setCustomMessages(prev => ({ ...prev, [s.session_id]: e.target.value }))}
+          />
+          <button
+            onClick={() => {
+              sendCommand("SEND_FEEDBACK", s.session_id, { feedback: customMessages[s.session_id] });
+              setCustomMessages(prev => ({ ...prev, [s.session_id]: "" }));
+            }}
+            className="bg-purple-950 hover:bg-purple-900 border border-purple-800 rounded px-2.5 text-purple-400 font-bold cursor-pointer"
+          >
+            Enviar
+          </button>
+        </div>
+
+        {/* Botones de bloqueo */}
+        <div className="flex gap-2">
+          {s.status === "LOCKED" ? (
+            <button
+              onClick={() => sendCommand("UNLOCK", s.session_id)}
+              className="flex-1 bg-emerald-950 hover:bg-emerald-900 border border-emerald-800 text-emerald-400 rounded py-1.5 text-[10px] font-bold cursor-pointer"
+            >
+              🔓 Desbloquear Mandos
+            </button>
+          ) : (
+            <button
+              onClick={() => sendCommand("LOCK", s.session_id)}
+              className="flex-1 bg-amber-950 hover:bg-amber-900 border border-amber-800 text-amber-400 rounded py-1.5 text-[10px] font-bold cursor-pointer"
+            >
+              🔒 Bloquear Mandos
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function InstructorDashboard() {
   const [activeTab, setActiveTab] = useState<"supervision" | "grades" | "heatmap">("supervision");
   const [heatmap, setHeatmap] = useState<HeatmapData>({
@@ -504,115 +682,13 @@ export default function InstructorDashboard() {
           ) : (
             <div className="grid grid-cols-3 gap-4">
               {activeSessions.map((s, idx) => (
-                <div key={idx} className={`bg-[#161b22] border rounded-xl p-3 flex flex-col justify-between transition-all hover:scale-[1.01] ${
-                  s.status === "BLOWOUT" ? "border-red-600 bg-red-950/10 shadow-lg shadow-red-950/20" : 
-                  s.status === "LOCKED" ? "border-amber-600 bg-amber-950/5" : "border-[#21262d]"
-                }`}>
-                  {/* Student Title */}
-                  <div className="flex justify-between items-start border-b border-[#21262d] pb-2 mb-2">
-                    <div>
-                      <h4 className="text-slate-200 font-bold text-xs uppercase">{s.full_name}</h4>
-                      <p className="text-[9px] text-slate-600 font-mono mt-0.5">{s.student_code}</p>
-                    </div>
-                    <span className={`text-[9px] font-bold rounded px-1.5 py-0.5 uppercase tracking-wider ${
-                      s.status === "BLOWOUT" ? "bg-red-800 text-white animate-pulse" :
-                      s.status === "LOCKED" ? "bg-amber-600 text-black" : "bg-emerald-950/60 text-emerald-400"
-                    }`}>
-                      {s.status}
-                    </span>
-                  </div>
-
-                  {/* Student Metrics */}
-                  <div className="space-y-1.5 py-1 text-[10px] flex-1">
-                    <div className="flex justify-between">
-                      <span className="text-slate-600">Simulador Activo:</span>
-                      <span className="text-purple-400 font-bold uppercase">{s.route} (U{s.active_unit})</span>
-                    </div>
-
-                    {s.route === "spe" ? (
-                      <>
-                        <div className="flex justify-between">
-                          <span className="text-slate-600">Rec. Ibuprofeno:</span>
-                          <span className="text-slate-300 font-bold">{(s.metrics.rec_b ?? 0).toFixed(1)}%</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-slate-600">Pureza Colectada:</span>
-                          <span className="text-slate-300 font-bold">{(s.metrics.pur_b ?? 0).toFixed(1)}%</span>
-                        </div>
-                      </>
-                    ) : s.route === "quantitative" ? (
-                      <>
-                        <div className="flex justify-between">
-                          <span className="text-slate-600">Fármaco USP:</span>
-                          <span className="text-slate-300 font-bold">{s.metrics.compound}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-slate-600">Linealidad R²:</span>
-                          <span className="text-slate-300 font-bold">{s.metrics.r_squared}</span>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <div className="flex justify-between">
-                          <span className="text-slate-600">Presión actual:</span>
-                          <span className={`${s.status === "BLOWOUT" ? "text-red-400 font-extrabold animate-pulse" : "text-slate-300"}`}>
-                            {s.metrics.pressure_mpa ? `${s.metrics.pressure_mpa.toFixed(1)} MPa` : (s.metrics.pressure_kpa ? `${s.metrics.pressure_kpa.toFixed(0)} kPa` : "—")}
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-slate-600">Resolución (Rs):</span>
-                          <span className="text-slate-300">{(s.metrics.rs ?? 0).toFixed(2)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-slate-600">Platos (N):</span>
-                          <span className="text-slate-300">{(s.metrics.plates ?? 0).toLocaleString()}</span>
-                        </div>
-                      </>
-                    )}
-                  </div>
-
-                  {/* HITL Controls */}
-                  <div className="pt-2 border-t border-[#21262d] mt-2 space-y-2">
-                    {/* Chat rápido */}
-                    <div className="flex gap-1">
-                      <input
-                        type="text"
-                        placeholder="Enviar sugerencia rápida..."
-                        className="flex-1 bg-[#0d1117] border border-[#30363d] rounded px-2 py-1 text-slate-300 text-[10px] outline-none"
-                        value={customMessages[s.session_id] ?? ""}
-                        onChange={e => setCustomMessages(prev => ({ ...prev, [s.session_id]: e.target.value }))}
-                      />
-                      <button
-                        onClick={() => {
-                          sendCommand("SEND_FEEDBACK", s.session_id, { feedback: customMessages[s.session_id] });
-                          setCustomMessages(prev => ({ ...prev, [s.session_id]: "" }));
-                        }}
-                        className="bg-purple-950 hover:bg-purple-900 border border-purple-800 rounded px-2.5 text-purple-400 font-bold cursor-pointer"
-                      >
-                        Enviar
-                      </button>
-                    </div>
-
-                    {/* Botones de bloqueo */}
-                    <div className="flex gap-2">
-                      {s.status === "LOCKED" ? (
-                        <button
-                          onClick={() => sendCommand("UNLOCK", s.session_id)}
-                          className="flex-1 bg-emerald-950 hover:bg-emerald-900 border border-emerald-800 text-emerald-400 rounded py-1.5 text-[10px] font-bold cursor-pointer"
-                        >
-                          🔓 Desbloquear Mandos
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => sendCommand("LOCK", s.session_id)}
-                          className="flex-1 bg-amber-950 hover:bg-amber-900 border border-amber-800 text-amber-400 rounded py-1.5 text-[10px] font-bold cursor-pointer"
-                        >
-                          🔒 Bloquear Mandos
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
+                <ActiveStudentCard
+                  key={s.session_id || idx}
+                  s={s}
+                  customMessages={customMessages}
+                  setCustomMessages={setCustomMessages}
+                  sendCommand={sendCommand}
+                />
               ))}
             </div>
           )}
