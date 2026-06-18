@@ -188,6 +188,9 @@ export default function App() {
             setIsLocked(false);
           } else if (data.type === "SEND_FEEDBACK") {
             setInstructorFeedback(data.feedback);
+          } else if (data.type === "DELETE_SESSION") {
+            localStorage.removeItem("chromatox_session");
+            window.location.reload();
           }
         };
         ws.onerror = () => {

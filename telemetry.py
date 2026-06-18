@@ -345,18 +345,21 @@ async def instructor_websocket(websocket: WebSocket):
             data = await websocket.receive_json()
             cmd_type = data.get("type")
             
-            if cmd_type in ["LOCK", "UNLOCK", "SEND_FEEDBACK"]:
+            if cmd_type in ["LOCK", "UNLOCK", "SEND_FEEDBACK", "DELETE_SESSION"]:
                 session_id = data.get("session_id")
                 if session_id:
                     # Enviar el comando al estudiante
                     await ws_manager.send_command_to_student(session_id, data)
                     
-                    # Actualizar estado de la sesión localmente
-                    sessions = await ws_manager.get_active_sessions()
-                    sdata = next((s for s in sessions if s.get("session_id") == session_id), None)
-                    if sdata:
-                        sdata["status"] = "LOCKED" if cmd_type == "LOCK" else "ACTIVE"
-                        await ws_manager.register_session(session_id, sdata)
+                    if cmd_type == "DELETE_SESSION":
+                        await ws_manager.delete_session(session_id)
+                    else:
+                        # Actualizar estado de la sesión localmente
+                        sessions = await ws_manager.get_active_sessions()
+                        sdata = next((s for s in sessions if s.get("session_id") == session_id), None)
+                        if sdata:
+                            sdata["status"] = "LOCKED" if cmd_type == "LOCK" else "ACTIVE"
+                            await ws_manager.register_session(session_id, sdata)
                         
             elif cmd_type == "GRADE_OVERRIDE":
                 student_code = data.get("student_code")

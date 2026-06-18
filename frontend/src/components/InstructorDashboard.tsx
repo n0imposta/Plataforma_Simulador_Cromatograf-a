@@ -82,7 +82,7 @@ function ActiveStudentCard({
   s: ActiveSession;
   customMessages: Record<string, string>;
   setCustomMessages: React.Dispatch<React.SetStateAction<Record<string, string>>>;
-  sendCommand: (type: "LOCK" | "UNLOCK" | "SEND_FEEDBACK", session_id: string, extra?: any) => void;
+  sendCommand: (type: "LOCK" | "UNLOCK" | "SEND_FEEDBACK" | "DELETE_SESSION", session_id: string, extra?: any) => void;
 }) {
   const [history, setHistory] = useState<any[]>([]);
   const [showHistory, setShowHistory] = useState(false);
@@ -228,23 +228,34 @@ function ActiveStudentCard({
           </button>
         </div>
 
-        {/* Botones de bloqueo */}
+        {/* Botones de bloqueo y eliminación */}
         <div className="flex gap-2">
           {s.status === "LOCKED" ? (
             <button
               onClick={() => sendCommand("UNLOCK", s.session_id)}
               className="flex-1 bg-emerald-950 hover:bg-emerald-900 border border-emerald-800 text-emerald-400 rounded py-1.5 text-[10px] font-bold cursor-pointer"
             >
-              🔓 Desbloquear Mandos
+              🔓 Desbloquear
             </button>
           ) : (
             <button
               onClick={() => sendCommand("LOCK", s.session_id)}
               className="flex-1 bg-amber-950 hover:bg-amber-900 border border-amber-800 text-amber-400 rounded py-1.5 text-[10px] font-bold cursor-pointer"
             >
-              🔒 Bloquear Mandos
+              🔒 Bloquear
             </button>
           )}
+          <button
+            onClick={() => {
+              if (window.confirm("¿Estás seguro de que deseas eliminar esta sesión? El estudiante será desconectado forzosamente.")) {
+                sendCommand("DELETE_SESSION", s.session_id);
+              }
+            }}
+            className="px-2.5 bg-red-950/40 hover:bg-red-900/40 border border-red-900 text-red-400 rounded py-1.5 text-[10px] font-bold cursor-pointer transition-colors"
+            title="Eliminar sesión del estudiante"
+          >
+            🗑️ Eliminar
+          </button>
         </div>
       </div>
     </div>
@@ -342,6 +353,8 @@ export default function InstructorDashboard() {
         } else if (data.type === "GRADE_OVERRIDE_CONFIRM") {
           // Actualizar planilla
           fetchGradesAndHeatmap();
+        } else if (data.type === "SESSION_DELETED") {
+          setActiveSessions(prev => prev.filter(s => s.session_id !== data.session_id));
         }
       };
 
@@ -357,7 +370,7 @@ export default function InstructorDashboard() {
     };
   }, []);
 
-  const sendCommand = (type: "LOCK" | "UNLOCK" | "SEND_FEEDBACK", session_id: string, extra = {}) => {
+  const sendCommand = (type: "LOCK" | "UNLOCK" | "SEND_FEEDBACK" | "DELETE_SESSION", session_id: string, extra = {}) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
         type,
@@ -369,6 +382,8 @@ export default function InstructorDashboard() {
         setActiveSessions(prev =>
           prev.map(s => s.session_id === session_id ? { ...s, status: type === "LOCK" ? "LOCKED" : "ACTIVE" } : s)
         );
+      } else if (type === "DELETE_SESSION") {
+        setActiveSessions(prev => prev.filter(s => s.session_id !== session_id));
       }
     }
   };

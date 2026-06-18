@@ -83,6 +83,20 @@ class WSManager:
                 del self._active_sessions[sid]
             return list(self._active_sessions.values())
 
+    async def delete_session(self, session_id: str) -> None:
+        """Elimina una sesión activa de forma permanente."""
+        if self.use_redis and self.redis_client:
+            try:
+                session_key = f"chromatox:active_session:{session_id}"
+                await self.redis_client.delete(session_key)
+                await self.redis_client.publish("chromatox:instructor_updates", json.dumps({"type": "SESSION_DELETED", "session_id": session_id}))
+            except Exception as e:
+                print(f"[WS MANAGER] Error eliminando sesión de Redis: {e}")
+        else:
+            if session_id in self._active_sessions:
+                del self._active_sessions[session_id]
+            await self.broadcast_student_update({"type": "SESSION_DELETED", "session_id": session_id})
+
     async def connect_student(self, session_id: str, websocket: WebSocket) -> None:
         """Asocia un socket de estudiante a su ID de sesión."""
         if session_id not in self._student_sockets:
