@@ -12,6 +12,7 @@
  */
 
 import { useState, useEffect } from "react";
+import { BACKEND_URL } from "../config";
 
 interface OnlineSessionManagerProps {
   sessionId: string;
@@ -86,7 +87,7 @@ export default function OnlineSessionManager({
     setFeedback("");
     
     try {
-      const res = await fetch("http://localhost:8000/api/telemetry/activity", {
+      const res = await fetch(`${BACKEND_URL}/api/telemetry/activity`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

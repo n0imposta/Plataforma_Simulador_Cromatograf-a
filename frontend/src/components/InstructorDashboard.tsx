@@ -11,6 +11,7 @@
  */
 
 import { useState, useEffect, useRef } from "react";
+import { BACKEND_URL, WS_BACKEND_URL } from "../config";
 
 interface HeatmapData {
   overpressure: number;
@@ -66,6 +67,9 @@ interface ActiveSession {
     compound?: string;
     math_score?: number;
     semantic_score?: number;
+    rec_b?: number;
+    pur_b?: number;
+    r_squared?: number | string;
   };
 }
 
@@ -106,8 +110,8 @@ export default function InstructorDashboard() {
   // Cargar datos estáticos e iniciales
   const fetchGradesAndHeatmap = async () => {
     try {
-      const heatmapRes = await fetch("http://localhost:8000/api/telemetry/errors-heatmap");
-      const gradesRes = await fetch("http://localhost:8000/api/telemetry/grades");
+      const heatmapRes = await fetch(`${BACKEND_URL}/api/telemetry/errors-heatmap`);
+      const gradesRes = await fetch(`${BACKEND_URL}/api/telemetry/grades`);
       
       if (heatmapRes.ok && gradesRes.ok) {
         const heatmapData = await heatmapRes.json();
@@ -139,7 +143,7 @@ export default function InstructorDashboard() {
 
     // Iniciar conexión WebSocket docente en vivo
     const connectWs = () => {
-      const wsUrl = "ws://localhost:8000/api/telemetry/ws/instructor";
+      const wsUrl = `${WS_BACKEND_URL}/api/telemetry/ws/instructor`;
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
@@ -209,7 +213,7 @@ export default function InstructorDashboard() {
     const finalScore = parseFloat(((rubric.matrix_effect + rubric.data_integrity + rubric.defense) / 3.0).toFixed(2));
 
     try {
-      const res = await fetch("http://localhost:8000/api/telemetry/final-exam", {
+      const res = await fetch(`${BACKEND_URL}/api/telemetry/final-exam`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

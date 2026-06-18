@@ -15,6 +15,7 @@
  */
 
 import { useState, useEffect } from "react";
+import { WS_BACKEND_URL } from "./config";
 import GCSimulatorPanel       from "./components/GCSimulatorPanel";
 import VanDeemterChart        from "./components/VanDeemterChart";
 import HPLCSimulatorPanel     from "./components/HPLCSimulatorPanel";
@@ -145,7 +146,7 @@ export default function App() {
 
   // WebSocket global de estudiante para telemetría activa y compuertas HITL
   useEffect(() => {
-    const wsUrl = `ws://localhost:8000/api/hplc/ws/${session.sessionId}?student_code=${session.studentCode}&full_name=${encodeURIComponent(session.fullName)}`;
+    const wsUrl = `${WS_BACKEND_URL}/api/hplc/ws/${session.sessionId}?student_code=${session.studentCode}&full_name=${encodeURIComponent(session.fullName)}`;
     let ws: WebSocket | null = null;
     let timer: number;
 

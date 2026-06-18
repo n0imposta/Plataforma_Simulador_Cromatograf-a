@@ -7,9 +7,10 @@
  * y calcula su incertidumbre estadística acumulada.
  */
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useMemo } from "react";
+import { BACKEND_URL } from "../config";
 import {
-  ScatterChart, Scatter, Line,
+  ScatterChart, Scatter,
   XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine
 } from "recharts";
@@ -62,7 +63,7 @@ export default function QuantitativeWorkspace({
     setErrorMessage("");
     setValidationResult(null);
     try {
-      const res = await fetch("http://localhost:8000/api/quantitative/generate-case", {
+      const res = await fetch(`${BACKEND_URL}/api/quantitative/generate-case`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -88,7 +89,7 @@ export default function QuantitativeWorkspace({
     setLoading(true);
     setErrorMessage("");
     try {
-      const res = await fetch("http://localhost:8000/api/quantitative/validate", {
+      const res = await fetch(`${BACKEND_URL}/api/quantitative/validate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -127,7 +128,7 @@ export default function QuantitativeWorkspace({
 
   // Datos para graficar la recta de calibración
   const chartData = useMemo(() => {
-    if (!caseData) return [];
+    if (!caseData) return { points: [], linePoints: [] };
     
     // Puntos estándares
     const points = caseData.concentrations.map((c, i) => ({

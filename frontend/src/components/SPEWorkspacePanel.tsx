@@ -10,6 +10,7 @@
  */
 
 import { useState, useCallback } from "react";
+import { BACKEND_URL } from "../config";
 
 // ─── TIPOS ───────────────────────────────────────────────────
 
@@ -266,7 +267,7 @@ export default function SPEWorkspacePanel({
 
     // 2. Intentar API HTTP del Backend
     try {
-      const res = await fetch("http://localhost:8000/api/hplc/spe/run", {
+      const res = await fetch(`${BACKEND_URL}/api/hplc/spe/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

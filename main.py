@@ -75,6 +75,7 @@ app.add_middleware(
         "http://localhost:3000",    # Build preview
         "https://chromatox.udea.edu.co",  # Producción
     ],
+    allow_origin_regex=r"https://.*\.onrender\.com",  # Permitir cualquier subdominio en Render
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

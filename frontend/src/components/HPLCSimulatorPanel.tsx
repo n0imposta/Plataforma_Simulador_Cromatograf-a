@@ -11,6 +11,7 @@
  */
 
 import { useState, useMemo, useCallback, useEffect } from "react";
+import { BACKEND_URL, WS_BACKEND_URL } from "../config";
 import {
   AreaChart, Area, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip,
@@ -369,7 +370,7 @@ export default function HPLCSimulatorPanel({
     }
 
     // 2. Intentar comunicar con WebSocket
-    const wsUrl = `ws://localhost:8000/api/hplc/ws/${sessionId}`;
+    const wsUrl = `${WS_BACKEND_URL}/api/hplc/ws/${sessionId}`;
     let ws: WebSocket | null = null;
     
     try {
@@ -415,7 +416,7 @@ export default function HPLCSimulatorPanel({
   // Consulta asíncrona de Feedback RAG si hay advertencias
   const fetchRAGFeedback = useCallback(async () => {
     try {
-      const res = await fetch(`http://localhost:8000/api/telemetry/rag-feedback/${sessionId}`);
+      const res = await fetch(`${BACKEND_URL}/api/telemetry/rag-feedback/${sessionId}`);
       if (res.ok) {
         const data = await res.json();
         if (data.ok && data.data) {
