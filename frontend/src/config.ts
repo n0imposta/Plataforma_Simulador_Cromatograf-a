@@ -8,9 +8,9 @@
 const isProd = import.meta.env.PROD;
 
 export const BACKEND_URL = (import.meta.env.VITE_API_URL as string) || (isProd
-  ? "https://plataforma-simulador-cromatografia.onrender.com"
+  ? "https://plataforma-simulador-cromatograf-a.onrender.com"
   : "http://localhost:8000");
 
 export const WS_BACKEND_URL = (import.meta.env.VITE_WS_URL as string) || (isProd
-  ? "wss://plataforma-simulador-cromatografia.onrender.com"
+  ? "wss://plataforma-simulador-cromatograf-a.onrender.com"
   : "ws://localhost:8000");
