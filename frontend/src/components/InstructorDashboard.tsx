@@ -441,6 +441,12 @@ export default function InstructorDashboard() {
     return "text-emerald-400 font-bold";
   };
 
+  const getRAGStatus = (grade: number) => {
+    if (grade < 3.0) return { label: "Rojo (Crítico)", style: "text-red-400 bg-red-950/40 border border-red-900 rounded-lg px-2 py-0.5 font-bold text-[9px]", dot: "🔴" };
+    if (grade < 4.0) return { label: "Ámbar (Medio)", style: "text-amber-400 bg-amber-950/40 border border-amber-900 rounded-lg px-2 py-0.5 font-bold text-[9px]", dot: "🟡" };
+    return { label: "Verde (Estable)", style: "text-emerald-400 bg-emerald-950/40 border border-emerald-800 rounded-lg px-2 py-0.5 font-bold text-[9px]", dot: "🟢" };
+  };
+
   const activeTabStyle = (tab: typeof activeTab) =>
     `px-4 py-2 text-xs font-mono font-bold rounded-lg border cursor-pointer transition-colors ${
       activeTab === tab
@@ -466,7 +472,7 @@ export default function InstructorDashboard() {
         <td style="text-align: center;">${s.act5_grade !== null ? s.act5_grade.toFixed(1) : "—"}</td>
         <td style="text-align: center;">${s.act6_grade !== null ? s.act6_grade.toFixed(1) : "—"}</td>
         <td style="text-align: center;">${s.final_exam_grade !== null ? s.final_exam_grade.toFixed(2) : "—"}</td>
-        <td style="text-align: center; font-weight: bold; color: #7c3aed;">${s.final_grade.toFixed(2)}</td>
+        <td style="text-align: center; font-weight: bold; color: ${s.final_grade < 3.0 ? '#ef4444' : s.final_grade < 4.0 ? '#f59e0b' : '#10b981'};">${s.final_grade.toFixed(2)}</td>
       </tr>
     `).join("");
 
@@ -731,6 +737,7 @@ export default function InstructorDashboard() {
                   <th className="py-2 text-center">Act 6 (7%)</th>
                   <th className="py-2 text-center">Examen (60%)</th>
                   <th className="py-2 text-center bg-purple-950/20 text-purple-400 font-bold">Ponderado</th>
+                  <th className="py-2 text-center">Semaforización RAG</th>
                   <th className="py-2 text-right">Rúbrica</th>
                 </tr>
               </thead>
@@ -752,8 +759,17 @@ export default function InstructorDashboard() {
                         </span>
                       ) : "—"}
                     </td>
-                    <td className="py-2 text-center bg-purple-950/10 text-purple-300 font-extrabold border-l border-r border-[#21262d]">
+                    <td className={`py-2 text-center font-extrabold border-l border-r border-[#21262d] ${
+                      s.final_grade < 3.0 ? "text-red-400 bg-red-950/20" :
+                      s.final_grade < 4.0 ? "text-amber-400 bg-amber-950/20" :
+                      "text-emerald-400 bg-emerald-950/20"
+                    }`}>
                       {s.final_grade.toFixed(2)}
+                    </td>
+                    <td className="py-2 text-center">
+                      <span className={getRAGStatus(s.final_grade).style}>
+                        {getRAGStatus(s.final_grade).dot} {getRAGStatus(s.final_grade).label}
+                      </span>
                     </td>
                     <td className="py-2 text-right">
                       <button

@@ -29,6 +29,9 @@ router = APIRouter(prefix="/api/quantitative", tags=["Quantitative Analysis"])
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 
+# Caché local en memoria para fallbacks
+local_quant_cases: dict[str, dict] = {}
+
 # ─── SCHEMAS ─────────────────────────────────────────────────
 
 class GenerateCaseRequest(BaseModel):
@@ -67,9 +70,13 @@ async def generate_case(req: GenerateCaseRequest):
     seed = abs(hash(str(req.session_id))) % (10**8)
     case_data = generate_calibration_data(chosen_compound, seed=seed)
     
-    # Guardar en Redis
+    # Guardar en Redis o fallback local
     redis_key = f"chromatox:quant_case:{req.session_id}"
-    redis_client.set(redis_key, json.dumps(case_data), ex=3600)  # Expira en 1 hora
+    try:
+        redis_client.set(redis_key, json.dumps(case_data), ex=3600)  # Expira en 1 hora
+    except Exception as e:
+        print(f"[QUANT SIM] Fallo al escribir en Redis: {e}. Guardando en memoria local.")
+    local_quant_cases[req.session_id] = case_data
     
     # Retornar al alumno (ocultando target_unk_conc)
     return {
@@ -91,17 +98,28 @@ async def validate_case(req: ValidateCaseRequest, db: AsyncSession = Depends(get
     Calificación: 50% Precisión de cálculos + 50% Evaluación semántica de la justificación.
     """
     redis_key = f"chromatox:quant_case:{req.session_id}"
-    case_json = redis_client.get(redis_key)
+    case_json = None
+    try:
+        case_json = redis_client.get(redis_key)
+    except Exception as e:
+        print(f"[QUANT SIM] Fallo al leer de Redis: {e}. Recuperando de memoria local.")
     
     if not case_json:
-        # Si no se encuentra en Redis, re-generar usando el seed de la sesión para consistencia
-        import random
-        seed = abs(hash(str(req.session_id))) % (10**8)
-        random.seed(seed)
-        compounds = list(USP_COMPOUNDS.keys())
-        chosen_compound = random.choice(compounds)
-        case_data = generate_calibration_data(chosen_compound, seed=seed)
-        redis_client.set(redis_key, json.dumps(case_data), ex=3600)
+        if req.session_id in local_quant_cases:
+            case_data = local_quant_cases[req.session_id]
+        else:
+            # Si no se encuentra en Redis, re-generar usando el seed de la sesión para consistencia
+            import random
+            seed = abs(hash(str(req.session_id))) % (10**8)
+            random.seed(seed)
+            compounds = list(USP_COMPOUNDS.keys())
+            chosen_compound = random.choice(compounds)
+            case_data = generate_calibration_data(chosen_compound, seed=seed)
+            try:
+                redis_client.set(redis_key, json.dumps(case_data), ex=3600)
+            except Exception as e:
+                print(f"[QUANT SIM] Fallo al escribir en Redis: {e}")
+            local_quant_cases[req.session_id] = case_data
     else:
         case_data = json.loads(case_json)
         

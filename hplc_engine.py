@@ -80,6 +80,29 @@ HPLC_COLUMN_CATALOG: dict[str, HPLCColumnSpec] = {
 # DATA CLASSES DE PARÁMETROS Y RESULTADOS
 # ============================================================
 
+ANALYTE_MIXTURES = {
+    "Paracetamol + Ibuprofeno": {
+        "analyte_a": "Paracetamol", "analyte_b": "Ibuprofeno",
+        "ACN": {"k_w_A": 12.0, "S_A": 2.6, "k_w_B": 45.0, "S_B": 3.1},
+        "MeOH": {"k_w_A": 16.0, "S_A": 1.9, "k_w_B": 65.0, "S_B": 2.4}
+    },
+    "Cafeína + Loratadina": {
+        "analyte_a": "Cafeína", "analyte_b": "Loratadina",
+        "ACN": {"k_w_A": 8.0, "S_A": 2.3, "k_w_B": 85.0, "S_B": 3.5},
+        "MeOH": {"k_w_A": 11.0, "S_A": 1.7, "k_w_B": 110.0, "S_B": 2.8}
+    },
+    "Ácido Acetilsalicílico + Naproxeno": {
+        "analyte_a": "Ácido Acetilsalicílico", "analyte_b": "Naproxeno",
+        "ACN": {"k_w_A": 15.0, "S_A": 2.8, "k_w_B": 35.0, "S_B": 2.9},
+        "MeOH": {"k_w_A": 20.0, "S_A": 2.1, "k_w_B": 50.0, "S_B": 2.2}
+    },
+    "Ranitidina + Omeprazol": {
+        "analyte_a": "Ranitidina", "analyte_b": "Omeprazol",
+        "ACN": {"k_w_A": 6.0, "S_A": 2.2, "k_w_B": 28.0, "S_B": 2.7},
+        "MeOH": {"k_w_A": 9.0, "S_A": 1.6, "k_w_B": 40.0, "S_B": 2.1}
+    }
+}
+
 @dataclass
 class HPLCParams:
     column_key: str
@@ -89,6 +112,7 @@ class HPLCParams:
     oven_temp_c: float
     analyte_a_name: str = "Paracetamol"
     analyte_b_name: str = "Ibuprofeno"
+    analyte_mixture: str = "Paracetamol + Ibuprofeno"
 
 @dataclass
 class HPLCPeakData:
@@ -174,13 +198,23 @@ def run_hplc_simulation(params: HPLCParams) -> HPLCSimResult:
         # Retornar objeto vacío o lanzar excepción. Para robustez creamos una por defecto.
         col = HPLC_COLUMN_CATALOG["C18_150mm_3.5um"]
 
-    # 2. Validaciones de límites del instrumento
-    temperature_ok = params.oven_temp_c <= HPLCInstrumentLimits.TEMP_COLUMN_MAX_C
-    if not temperature_ok:
-        errors.append(
-            f"La temperatura del horno ({params.oven_temp_c}°C) supera el límite máximo "
-            f"de la columna ({HPLCInstrumentLimits.TEMP_COLUMN_MAX_C}°C)."
-        )
+    # 2. Validaciones de límites del instrumento (Diferenciación HPLC / UHPLC)
+    is_uhplc = col.particle_size_um < 2.0
+    
+    if is_uhplc:
+        temperature_ok = params.oven_temp_c <= 60.0
+        if not temperature_ok:
+            errors.append(
+                f"¡ERROR DE TEMPERATURA CRÍTICA! La temperatura del horno ({params.oven_temp_c}°C) "
+                f"excede los 60°C permitidos para la técnica UHPLC."
+            )
+    else:
+        temperature_ok = params.oven_temp_c <= 45.0
+        if not temperature_ok:
+            errors.append(
+                f"¡ERROR DE TEMPERATURA CRÍTICA! La temperatura del horno ({params.oven_temp_c}°C) "
+                f"excede los 45°C permitidos para la técnica HPLC estándar."
+            )
 
     # 3. Viscosidad de la fase móvil
     eta = mobile_phase_viscosity(params.mobile_phase_solvent, params.organic_modifier_pct, params.oven_temp_c)
@@ -198,13 +232,26 @@ def run_hplc_simulation(params: HPLCParams) -> HPLCSimResult:
     # w = 1000 (pack factor), L en mm, η en cP, u en mm/s, dp en µm
     pressure_mpa = (HPLCInstrumentLimits.FLOW_RESISTANCE_W * eta * col.length_mm * u) / (1000.0 * (col.particle_size_um ** 2))
     pressure_bar = pressure_mpa * 10.0
-    pressure_ok = pressure_mpa <= col.max_pressure_mpa
-
-    if not pressure_ok:
-        errors.append(
-            f"¡ERROR DE CONTRAPRESIÓN CRÍTICA! La presión calculada de {pressure_mpa:.2f} MPa "
-            f"excede el límite físico soportado por la columna '{col.name}' ({col.max_pressure_mpa:.1f} MPa)."
-        )
+    
+    if is_uhplc:
+        pressure_ok = pressure_mpa <= 130.0
+        if not pressure_ok:
+            errors.append(
+                f"¡ERROR DE PRESIÓN CRÍTICA! La contrapresión de {pressure_bar:.1f} bar "
+                f"excede el límite estructural de UHPLC (1300 bar). Peligro de daño físico."
+            )
+        elif pressure_bar > 1000.0:
+            warnings.append(
+                f"¡ADVERTENCIA DE PRESIÓN CRÍTICA! La contrapresión de {pressure_bar:.1f} bar "
+                f"supera el límite de operación normal (1000 bar) de UHPLC."
+            )
+    else:
+        pressure_ok = pressure_mpa <= 40.0
+        if not pressure_ok:
+            errors.append(
+                f"¡ERROR DE PRESIÓN CRÍTICA! La contrapresión de {pressure_bar:.1f} bar "
+                f"excede los 400 bar permitidos para HPLC estándar. Flujo interrumpido."
+            )
 
     # 6. Difusividad de analito y Knox Reducido
     Dm = solute_diffusion_coefficient(eta, params.oven_temp_c) # mm²/s
@@ -236,15 +283,17 @@ def run_hplc_simulation(params: HPLCParams) -> HPLCSimResult:
         "Cyano": 0.45
     }.get(col.chemistry, 1.0)
 
-    # Coeficientes de analitos (Paracetamol = Polar / Ibuprofeno = Apolar)
-    if params.mobile_phase_solvent == "ACN":
-        # ACN es eluyente fuerte
-        k_w_A, S_A = 12.0, 2.6
-        k_w_B, S_B = 45.0, 3.1
-    else:  # MeOH
-        # MeOH es eluyente débil
-        k_w_A, S_A = 16.0, 1.9
-        k_w_B, S_B = 65.0, 2.4
+    # Coeficientes de analitos dinámicos en base a la mezcla seleccionada
+    mixture_name = params.analyte_mixture or "Paracetamol + Ibuprofeno"
+    mix_data = ANALYTE_MIXTURES.get(mixture_name, ANALYTE_MIXTURES["Paracetamol + Ibuprofeno"])
+    analyte_a_name = mix_data["analyte_a"]
+    analyte_b_name = mix_data["analyte_b"]
+
+    solv_data = mix_data.get(params.mobile_phase_solvent, mix_data["ACN"])
+    k_w_A = solv_data["k_w_A"]
+    S_A = solv_data["S_A"]
+    k_w_B = solv_data["k_w_B"]
+    S_B = solv_data["S_B"]
 
     # Ajustar por química de columna
     k_w_A *= retention_multiplier
@@ -294,7 +343,7 @@ def run_hplc_simulation(params: HPLCParams) -> HPLCSimResult:
 
     # Picos
     peak_a = HPLCPeakData(
-        analyte_name=params.analyte_a_name,
+        analyte_name=analyte_a_name,
         retention_time_min=round(t_R_A, 4),
         retention_factor_k=round(k_A, 3),
         peak_width_min=round(w_a, 4),
@@ -305,7 +354,7 @@ def run_hplc_simulation(params: HPLCParams) -> HPLCSimResult:
     )
 
     peak_b = HPLCPeakData(
-        analyte_name=params.analyte_b_name,
+        analyte_name=analyte_b_name,
         retention_time_min=round(t_R_B, 4),
         retention_factor_k=round(k_B, 3),
         peak_width_min=round(w_b, 4),
@@ -323,7 +372,7 @@ def run_hplc_simulation(params: HPLCParams) -> HPLCSimResult:
         )
     if t_usp_b > 2.0:
         warnings.append(
-            f"Deformación de pico severa: Tailing del Ibuprofeno = {t_usp_b:.2f} "
+            f"Deformación de pico severa: Tailing del {analyte_b_name} = {t_usp_b:.2f} "
             "(USP 49 limita el factor de cola T ≤ 2.0 para evitar errores de integración)."
         )
     if pressure_mpa > col.max_pressure_mpa * 0.85 and pressure_ok:

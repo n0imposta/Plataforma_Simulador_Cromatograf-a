@@ -54,12 +54,12 @@ interface AppSession {
 // ─── NAV ITEMS ────────────────────────────────────────────────
 
 const NAV_ITEMS: { route: Route; icon: string; label: string; unit: string; roles: Role[] }[] = [
+  { route: "vandeemter_hplc",icon: "📈", label: "van Deemter",      unit: "Unidad 1", roles: ["student","instructor"] },
+  { route: "vandeemter_gc",  icon: "📊", label: "Golay",            unit: "Unidad 1", roles: ["student","instructor"] },
+  { route: "spe",            icon: "🧪", label: "Extrac. Fase Sól.", unit: "Unidad 2", roles: ["student","instructor"] },
   { route: "hplc",           icon: "💧", label: "HPLC",             unit: "Unidad 3", roles: ["student","instructor"] },
   { route: "uhplc",          icon: "⚡", label: "UHPLC",            unit: "Unidad 4", roles: ["student","instructor"] },
   { route: "gc",             icon: "🔥", label: "GC",               unit: "Unidad 5", roles: ["student","instructor"] },
-  { route: "vandeemter_hplc",icon: "📈", label: "van Deemter",      unit: "HPLC/UHPLC", roles: ["student","instructor"] },
-  { route: "vandeemter_gc",  icon: "📊", label: "Golay",            unit: "GC",      roles: ["student","instructor"] },
-  { route: "spe",            icon: "🧪", label: "Extrac. Fase Sól.", unit: "Unidad 2", roles: ["student","instructor"] },
   { route: "quantitative",   icon: "📊", label: "Taller Cuant.",    unit: "Unidad 6", roles: ["student","instructor"] },
   { route: "dashboard",      icon: "🖥",  label: "Dashboard Docente",unit: "Admin",   roles: ["instructor"] },
 ];
@@ -95,7 +95,7 @@ function NavItem({
 
 function UnitProgress({ activeUnit }: { activeUnit: number }) {
   const units = [
-    { n: 1, label: "Generalidades" },
+    { n: 1, label: "van Deemter / Golay" },
     { n: 2, label: "SPE" },
     { n: 3, label: "HPLC" },
     { n: 4, label: "UHPLC" },
@@ -147,13 +147,14 @@ export default function App() {
       setRoute("dashboard");
     } else {
       const unitRouteMap: Record<number, Route> = {
+        1: "vandeemter_hplc",
         2: "spe",
         3: "hplc",
         4: "uhplc",
         5: "gc",
         6: "quantitative"
       };
-      setRoute(unitRouteMap[session.activeUnit] || "spe");
+      setRoute(unitRouteMap[session.activeUnit] || "vandeemter_hplc");
     }
   }, [session]);
 
@@ -311,26 +312,48 @@ export default function App() {
         return <GCSimulatorPanel sessionId={session.sessionId} />;
       case "vandeemter_hplc":
         return (
-          <VanDeemterChart
-            technique="HPLC"
-            initialColumnKey="C18_3um"
-            gateUnlocked={true}
-            operatingPoint={{ u: 1.0, hetp: 0.032, label: "Punto actual" }}
-            onOptimalVelocityFound={(u, h) =>
-              console.log(`HPLC u_opt=${u.toFixed(2)} mm/min, HETP_min=${h.toFixed(4)} mm`)
-            }
-          />
+          <div className="space-y-4">
+            <OnlineSessionManager
+              sessionId={session.sessionId + "-vd-hplc"}
+              studentCode={session.studentCode}
+              fullName={session.fullName}
+              activityNumber={1}
+              currentSimScore={5.0}
+              telemetryData={currentTelemetryData}
+              onActivityValidated={(_score) => handleActivityValidated(2)}
+            />
+            <VanDeemterChart
+              technique="HPLC"
+              initialColumnKey="C18_3um"
+              gateUnlocked={true}
+              operatingPoint={{ u: 1.0, hetp: 0.032, label: "Punto actual" }}
+              onOptimalVelocityFound={(u, h) =>
+                console.log(`HPLC u_opt=${u.toFixed(2)} mm/min, HETP_min=${h.toFixed(4)} mm`)
+              }
+            />
+          </div>
         );
       case "vandeemter_gc":
         return (
-          <VanDeemterChart
-            technique="GC"
-            initialColumnKey="DB5_30m"
-            gateUnlocked={true}
-            onOptimalVelocityFound={(u, h) =>
-              console.log(`GC u_opt=${u.toFixed(2)} cm/s, HETP_min=${h.toFixed(4)} mm`)
-            }
-          />
+          <div className="space-y-4">
+            <OnlineSessionManager
+              sessionId={session.sessionId + "-vd-gc"}
+              studentCode={session.studentCode}
+              fullName={session.fullName}
+              activityNumber={1}
+              currentSimScore={5.0}
+              telemetryData={currentTelemetryData}
+              onActivityValidated={(_score) => handleActivityValidated(2)}
+            />
+            <VanDeemterChart
+              technique="GC"
+              initialColumnKey="DB5_30m"
+              gateUnlocked={true}
+              onOptimalVelocityFound={(u, h) =>
+                console.log(`GC u_opt=${u.toFixed(2)} cm/s, HETP_min=${h.toFixed(4)} mm`)
+              }
+            />
+          </div>
         );
       case "spe":
         return (

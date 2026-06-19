@@ -49,14 +49,14 @@ async def lifespan(app: FastAPI):
                     full_name="Profesor de Cromatografía",
                     hashed_password=hash_password("docente2026"),
                     role="instructor",
-                    active_unit=2
+                    active_unit=1
                 )
                 estudiante = User(
                     username="estudiante",
                     full_name="Estudiante Demo",
                     hashed_password=hash_password("estudiante2026"),
                     role="student",
-                    active_unit=2
+                    active_unit=1
                 )
                 session.add_all([docente, estudiante])
                 

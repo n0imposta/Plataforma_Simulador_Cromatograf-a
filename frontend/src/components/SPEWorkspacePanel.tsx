@@ -30,6 +30,7 @@ interface SPEState {
   elutionSolvent: "MeOH" | "ACN" | "EtOAc";
   elutionOrganicPct: number;
   elutionVolumeMl: number;
+  analyteMixture?: string;
 }
 
 interface AnalyteResult {
@@ -51,6 +52,32 @@ interface SPEMetrics {
   errors: string[];
 }
 
+const ANALYTE_MIXTURES: Record<string, { analyte_a: string; analyte_b: string }> = {
+  "Paracetamol + Ibuprofeno": { analyte_a: "Paracetamol", analyte_b: "Ibuprofeno" },
+  "Cafeína + Loratadina": { analyte_a: "Cafeína", analyte_b: "Loratadina" },
+  "Ácido Acetilsalicílico + Naproxeno": { analyte_a: "Ácido Acetilsalicílico", analyte_b: "Naproxeno" },
+  "Ranitidina + Omeprazol": { analyte_a: "Ranitidina", analyte_b: "Omeprazol" }
+};
+
+const SPE_ANALYTE_COEFFS: Record<string, Record<SorbentType, { k_w_A: number; S_A: number; k_w_B: number; S_B: number }>> = {
+  "Paracetamol + Ibuprofeno": {
+    C18: { k_w_A: 15.0, S_A: 2.6, k_w_B: 180.0, S_B: 3.2 },
+    Silica: { k_w_A: 120.0, S_A: 3.0, k_w_B: 5.0, S_B: 1.2 }
+  },
+  "Cafeína + Loratadina": {
+    C18: { k_w_A: 10.0, S_A: 2.3, k_w_B: 300.0, S_B: 3.5 },
+    Silica: { k_w_A: 100.0, S_A: 2.5, k_w_B: 3.0, S_B: 1.0 }
+  },
+  "Ácido Acetilsalicílico + Naproxeno": {
+    C18: { k_w_A: 18.0, S_A: 2.8, k_w_B: 140.0, S_B: 2.9 },
+    Silica: { k_w_A: 110.0, S_A: 2.8, k_w_B: 6.0, S_B: 1.1 }
+  },
+  "Ranitidina + Omeprazol": {
+    C18: { k_w_A: 8.0, S_A: 2.2, k_w_B: 110.0, S_B: 2.7 },
+    Silica: { k_w_A: 90.0, S_A: 2.4, k_w_B: 8.0, S_B: 1.2 }
+  }
+};
+
 const SPE_INITIAL: SPEState = {
   sorbentType: "C18",
   conditioningSolvent: "MeOH",
@@ -64,6 +91,7 @@ const SPE_INITIAL: SPEState = {
   elutionSolvent: "MeOH",
   elutionOrganicPct: 80.0,
   elutionVolumeMl: 2.0,
+  analyteMixture: "Paracetamol + Ibuprofeno"
 };
 
 // ─── MOTOR LOCAL FALLBACK SPE ─────────────────────────────────
@@ -93,14 +121,18 @@ function localSPESimulation(s: SPEState): SPEMetrics {
     }
   }
 
+  // Resolve analyte names based on mixture
+  const mixKey = s.analyteMixture || "Paracetamol + Ibuprofeno";
+  const mix = ANALYTE_MIXTURES[mixKey] || ANALYTE_MIXTURES["Paracetamol + Ibuprofeno"];
+  const analyte_a_name = mix.analyte_a;
+  const analyte_b_name = mix.analyte_b;
+
   // Coeficientes de reparto
-  let k_w_A = 15.0, S_A = 2.6; // Paracetamol
-  let k_w_B = 180.0, S_B = 3.2; // Ibuprofeno
-  
-  if (s.sorbentType === "Silica") {
-    k_w_A = 120.0; S_A = 3.0;
-    k_w_B = 5.0; S_B = 1.2;
-  }
+  const coeffs = SPE_ANALYTE_COEFFS[mixKey]?.[s.sorbentType] || SPE_ANALYTE_COEFFS["Paracetamol + Ibuprofeno"][s.sorbentType];
+  const k_w_A = coeffs.k_w_A;
+  const S_A = coeffs.S_A;
+  const k_w_B = coeffs.k_w_B;
+  const S_B = coeffs.S_B;
 
   // Carga
   let ads_A = 0.0, ads_B = 0.0;
@@ -166,10 +198,10 @@ function localSPESimulation(s: SPEState): SPEMetrics {
 
   if (s.sorbentType === "C18") {
     if (s.washingOrganicPct > 25.0 && recovered_A < 50.0) {
-      warnings.push("Lavado excesivo: El solvente de lavado eluyó el Paracetamol, perdiéndose en este paso.");
+      warnings.push(`Lavado excesivo: El solvente de lavado eluyó el ${analyte_a_name}, perdiéndose en este paso.`);
     }
     if (s.elutionOrganicPct < 60.0 && recovered_B < 50.0) {
-      warnings.push("Elución débil: % orgánico muy bajo para eluir el Ibuprofeno, quedando atrapado en el cartucho.");
+      warnings.push(`Elución débil: % orgánico muy bajo para eluir el ${analyte_b_name}, quedando atrapado en el cartucho.`);
     }
   }
 
@@ -179,14 +211,14 @@ function localSPESimulation(s: SPEState): SPEMetrics {
     sorbent_type: s.sorbentType,
     conditioning_factor: cond_factor,
     analyte_a: {
-      name: "Paracetamol",
+      name: analyte_a_name,
       percent_adsorbed: ads_A,
       percent_washed_out: lost_wash_A,
       percent_recovered: recovered_A,
       percent_remaining: retained_A - recovered_A
     },
     analyte_b: {
-      name: "Ibuprofeno",
+      name: analyte_b_name,
       percent_adsorbed: ads_B,
       percent_washed_out: lost_wash_B,
       percent_recovered: recovered_B,
@@ -284,6 +316,7 @@ export default function SPEWorkspacePanel({
           elution_solvent: currentState.elutionSolvent,
           elution_organic_pct: currentState.elutionOrganicPct,
           elution_volume_ml: currentState.elutionVolumeMl,
+          analyte_mixture: currentState.analyteMixture || "Paracetamol + Ibuprofeno"
         })
       });
       if (res.ok) {
@@ -358,6 +391,17 @@ export default function SPEWorkspacePanel({
                   <option value="Hexano">Hexano (Normal Phase)</option>
                 </select>
               </div>
+            </div>
+
+            <div className="pt-2 border-t border-[#21262d]">
+              <label className="text-slate-500 font-bold block mb-1">Mezcla USP (Muestra):</label>
+              <select
+                className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-2 py-1.5 text-slate-300 outline-none"
+                value={state.analyteMixture || "Paracetamol + Ibuprofeno"}
+                onChange={e => updateField("analyteMixture", e.target.value)}
+              >
+                {Object.keys(ANALYTE_MIXTURES).map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
             </div>
 
             <div className="grid grid-cols-2 gap-3 pt-2">
@@ -533,16 +577,16 @@ export default function SPEWorkspacePanel({
               Resultados de Partición
             </span>
 
-            <ResultBar name="Paracetamol (Polar)" data={metrics.analyte_a} />
-            <ResultBar name="Ibuprofeno (Apolar)" data={metrics.analyte_b} />
+            <ResultBar name={`${metrics.analyte_a.name} (Polar)`} data={metrics.analyte_a} />
+            <ResultBar name={`${metrics.analyte_b.name} (Apolar)`} data={metrics.analyte_b} />
 
             <div className="bg-[#0d1117] border border-[#21262d] rounded-lg p-2 grid grid-cols-2 gap-2 text-[10px]">
               <div>
-                <p className="text-slate-500 font-bold">Pureza Paracetamol:</p>
+                <p className="text-slate-500 font-bold">Pureza {metrics.analyte_a.name}:</p>
                 <p className="text-emerald-400 font-extrabold text-sm font-mono">{metrics.purity_a_pct.toFixed(1)}%</p>
               </div>
               <div>
-                <p className="text-slate-500 font-bold">Pureza Ibuprofeno:</p>
+                <p className="text-slate-500 font-bold">Pureza {metrics.analyte_b.name}:</p>
                 <p className="text-emerald-400 font-extrabold text-sm font-mono">{metrics.purity_b_pct.toFixed(1)}%</p>
               </div>
             </div>

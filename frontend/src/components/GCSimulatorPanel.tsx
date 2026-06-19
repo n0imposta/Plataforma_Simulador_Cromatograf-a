@@ -491,7 +491,6 @@ export default function GCSimulatorPanel({ sessionId }: { sessionId: string }) {
                   className="flex-1 bg-[#0d1117] border border-[#30363d] rounded px-2 py-1
                              text-slate-300 text-[11px] outline-none"
                   value={state.columnKey}
-                  disabled={gates.g2 === "LOCKED"}
                   onChange={e => updateState({ columnKey: e.target.value })}
                 >
                   {GC_COLUMNS.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
@@ -504,11 +503,9 @@ export default function GCSimulatorPanel({ sessionId }: { sessionId: string }) {
                 <div className="flex gap-2">
                   {(["He","H2","N2"] as CarrierGas[]).map(g => (
                     <button key={g}
-                      disabled={gates.g2 === "LOCKED"}
                       onClick={() => updateState({ carrierGas: g })}
                       className={`px-3 py-1 rounded border text-[10px] transition-colors cursor-pointer
-                        ${state.carrierGas === g ? "border-current font-bold" : "border-[#30363d] text-slate-600"}
-                        disabled:opacity-30`}
+                        ${state.carrierGas === g ? "border-current font-bold" : "border-[#30363d] text-slate-600"}`}
                       style={state.carrierGas === g ? { color: GAS_INFO[g].color, borderColor: GAS_INFO[g].color } : {}}
                     >
                       {g}
@@ -522,9 +519,8 @@ export default function GCSimulatorPanel({ sessionId }: { sessionId: string }) {
                 <label className="text-slate-500 w-28 shrink-0">Presión entrada:</label>
                 <input type="range" min={10} max={970} step={5}
                   value={state.inletPressureKpa}
-                  disabled={gates.g2 === "LOCKED"}
                   onChange={e => updateState({ inletPressureKpa: Number(e.target.value) })}
-                  className="flex-1 disabled:opacity-30"/>
+                  className="flex-1"/>
                 <span className="text-slate-300 w-20 text-right">{state.inletPressureKpa} kPa</span>
               </div>
 
@@ -533,7 +529,7 @@ export default function GCSimulatorPanel({ sessionId }: { sessionId: string }) {
                 <label className="text-slate-500 w-28 shrink-0">T horno (iso.):</label>
                 <input type="range" min={30} max={colInfo.maxT} step={5}
                   value={state.ovenTempC}
-                  disabled={gates.g2 === "LOCKED" || state.useTempProgram}
+                  disabled={state.useTempProgram}
                   onChange={e => updateState({ ovenTempC: Number(e.target.value) })}
                   className="flex-1 disabled:opacity-30"/>
                 <span className="text-slate-300 w-20 text-right">{state.ovenTempC}°C</span>
@@ -546,9 +542,8 @@ export default function GCSimulatorPanel({ sessionId }: { sessionId: string }) {
                     <label className="text-slate-500 text-[10px] w-24 shrink-0">{label}:</label>
                     <input type="range" min={mn} max={mx} step={0.5}
                       value={state[key]}
-                      disabled={gates.g2 === "LOCKED"}
                       onChange={e => updateState({ [key]: Number(e.target.value) })}
-                      className="flex-1 disabled:opacity-30"/>
+                      className="flex-1"/>
                     <span className="text-slate-300 w-8 text-right">{state[key]}</span>
                   </div>
                 ))}
@@ -567,12 +562,11 @@ export default function GCSimulatorPanel({ sessionId }: { sessionId: string }) {
                 {(Object.entries(INJ_MODE_INFO) as [InjMode, typeof INJ_MODE_INFO[InjMode]][]).map(([k,info]) => (
                   <button key={k}
                     onClick={() => updateState({ injectionMode: k })}
-                    disabled={gates.g2 === "LOCKED"}
                     className={`text-left p-2 rounded border transition-colors cursor-pointer
                       ${state.injectionMode === k
                         ? "border-blue-700 bg-blue-900/30 text-blue-300"
                         : "border-[#30363d] bg-[#0d1117] text-slate-500"
-                      } disabled:opacity-30`}
+                      }`}
                   >
                     <p className="font-bold text-[11px]">{info.icon} {info.label}</p>
                     <p className="text-[10px] mt-0.5">{info.use}</p>
@@ -585,9 +579,8 @@ export default function GCSimulatorPanel({ sessionId }: { sessionId: string }) {
                   <label className="text-slate-500 w-28 shrink-0">Split ratio 1:</label>
                   <input type="range" min={1} max={500} step={10}
                     value={state.splitRatio}
-                    disabled={gates.g2 === "LOCKED"}
                     onChange={e => updateState({ splitRatio: Number(e.target.value) })}
-                    className="flex-1 disabled:opacity-30"/>
+                    className="flex-1"/>
                   <span className="text-slate-300 w-12 text-right">{state.splitRatio}</span>
                 </div>
               )}
@@ -596,9 +589,8 @@ export default function GCSimulatorPanel({ sessionId }: { sessionId: string }) {
                   <label className="text-slate-500 w-28 shrink-0">T purga (min):</label>
                   <input type="range" min={0.5} max={3.0} step={0.1}
                     value={state.purgeTimeMin}
-                    disabled={gates.g2 === "LOCKED"}
                     onChange={e => updateState({ purgeTimeMin: Number(e.target.value) })}
-                    className="flex-1 disabled:opacity-30"/>
+                    className="flex-1"/>
                   <span className="text-slate-300 w-12 text-right">{state.purgeTimeMin} min</span>
                 </div>
               )}
@@ -608,9 +600,8 @@ export default function GCSimulatorPanel({ sessionId }: { sessionId: string }) {
                 <label className="text-slate-500 w-28 shrink-0">T inyector:</label>
                 <input type="range" min={50} max={450} step={10}
                   value={state.injectorTempC}
-                  disabled={gates.g2 === "LOCKED"}
                   onChange={e => updateState({ injectorTempC: Number(e.target.value) })}
-                  className="flex-1 disabled:opacity-30"/>
+                  className="flex-1"/>
                 <span className="text-slate-300 w-16 text-right">{state.injectorTempC}°C</span>
               </div>
 
@@ -726,12 +717,11 @@ export default function GCSimulatorPanel({ sessionId }: { sessionId: string }) {
                   return (
                     <button key={k}
                       onClick={() => updateState({ detectorType: k })}
-                      disabled={gates.g2 === "LOCKED"}
                       className={`text-left p-2 rounded border transition-colors cursor-pointer w-full
                         ${state.detectorType === k
                           ? "border-current bg-[#0d1117]"
                           : "border-[#21262d] bg-[#0d1117] hover:border-[#30363d]"
-                        } disabled:opacity-30 ${!compatible ? "opacity-50" : ""}`}
+                        } ${!compatible ? "opacity-50" : ""}`}
                       style={state.detectorType === k ? { borderColor: d.color } : {}}
                     >
                       <div className="flex justify-between items-center">
@@ -750,9 +740,8 @@ export default function GCSimulatorPanel({ sessionId }: { sessionId: string }) {
                 <label className="text-slate-500 w-24 shrink-0">T detector:</label>
                 <input type="range" min={50} max={450} step={10}
                   value={state.detectorTempC}
-                  disabled={gates.g2 === "LOCKED"}
                   onChange={e => updateState({ detectorTempC: Number(e.target.value) })}
-                  className="flex-1 disabled:opacity-30"/>
+                  className="flex-1"/>
                 <span className="text-slate-300 w-16 text-right">{state.detectorTempC}°C</span>
               </div>
             </div>

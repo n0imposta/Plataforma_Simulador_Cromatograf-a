@@ -36,6 +36,7 @@ class HPLCSimRequest(BaseModel):
     organic_modifier_pct: float = Field(..., ge=0.0, le=100.0)
     flow_rate_ml_min: float = Field(..., ge=0.05, le=5.0)
     oven_temp_c: float = Field(..., ge=15.0, le=80.0)
+    analyte_mixture: Optional[str] = "Paracetamol + Ibuprofeno"
 
     @validator("column_key")
     def column_must_exist(cls, v: str) -> str:
@@ -67,6 +68,7 @@ class SPESimRequest(BaseModel):
     elution_solvent: Literal["MeOH", "ACN", "EtOAc"]
     elution_organic_pct: float = Field(..., ge=0.0, le=100.0)
     elution_volume_ml: float = Field(..., ge=0.1)
+    analyte_mixture: Optional[str] = "Paracetamol + Ibuprofeno"
 
 # ─── ENDPOINTS HPLC ──────────────────────────────────────────
 
@@ -145,7 +147,8 @@ async def run_hplc(req: HPLCSimRequest):
         mobile_phase_solvent=req.mobile_phase_solvent,
         organic_modifier_pct=req.organic_modifier_pct,
         flow_rate_ml_min=req.flow_rate_ml_min,
-        oven_temp_c=req.oven_temp_c
+        oven_temp_c=req.oven_temp_c,
+        analyte_mixture=req.analyte_mixture
     )
     result = run_hplc_simulation(params)
     compute_ms = int((time.perf_counter() - t0) * 1000)
@@ -201,7 +204,8 @@ async def run_spe(req: SPESimRequest):
         washing_volume_ml=req.washing_volume_ml,
         elution_solvent=req.elution_solvent,
         elution_organic_pct=req.elution_organic_pct,
-        elution_volume_ml=req.elution_volume_ml
+        elution_volume_ml=req.elution_volume_ml,
+        analyte_mixture=req.analyte_mixture
     )
     result = run_spe_simulation(params)
     return {
@@ -239,7 +243,8 @@ async def hplc_websocket(websocket: WebSocket, session_id: str):
                     mobile_phase_solvent=p.get("mobile_phase_solvent", "ACN"),
                     organic_modifier_pct=float(p.get("organic_modifier_pct", 50.0)),
                     flow_rate_ml_min=float(p.get("flow_rate_ml_min", 1.0)),
-                    oven_temp_c=float(p.get("oven_temp_c", 25.0))
+                    oven_temp_c=float(p.get("oven_temp_c", 25.0)),
+                    analyte_mixture=p.get("analyte_mixture", "Paracetamol + Ibuprofeno")
                 )
                 
                 result = run_hplc_simulation(params)
@@ -323,7 +328,8 @@ async def hplc_websocket(websocket: WebSocket, session_id: str):
                     washing_volume_ml=float(p.get("washing_volume_ml", 1.0)),
                     elution_solvent=p.get("elution_solvent", "MeOH"),
                     elution_organic_pct=float(p.get("elution_organic_pct", 80.0)),
-                    elution_volume_ml=float(p.get("elution_volume_ml", 2.0))
+                    elution_volume_ml=float(p.get("elution_volume_ml", 2.0)),
+                    analyte_mixture=p.get("analyte_mixture", "Paracetamol + Ibuprofeno")
                 )
                 result_spe = run_spe_simulation(params_spe)
                 await websocket.send_json({

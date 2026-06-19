@@ -48,7 +48,7 @@ class User(Base):
     full_name = Column(String, nullable=False)
     hashed_password = Column(String, nullable=False)
     role = Column(String, nullable=False)  # "student" o "instructor"
-    active_unit = Column(Integer, default=2)  # Progreso en el microcurrículo (Unidad 2 por defecto)
+    active_unit = Column(Integer, default=1)  # Progreso en el microcurrículo (Unidad 1 por defecto)
 
     def to_dict(self) -> dict:
         return {

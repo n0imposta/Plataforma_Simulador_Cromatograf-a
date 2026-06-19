@@ -39,6 +39,7 @@ class SPEParams:
     elution_volume_ml: float
     analyte_a_name: str = "Paracetamol"       # Polar (logP ≈ 0.46)
     analyte_b_name: str = "Ibuprofeno"        # Apolar (logP ≈ 3.5)
+    analyte_mixture: str = "Paracetamol + Ibuprofeno"
 
 @dataclass
 class SPEAnalyteResult:
@@ -77,12 +78,42 @@ def _normal_cdf(x: float, mean: float, std: float) -> float:
         return 1.0 if x >= mean else 0.0
     return 0.5 * (1.0 + math.erf((x - mean) / (std * math.sqrt(2.0))))
 
+SPE_ANALYTE_COEFFS = {
+    "Paracetamol + Ibuprofeno": {
+        "C18": {"k_w_A": 15.0, "S_A": 2.6, "k_w_B": 180.0, "S_B": 3.2},
+        "Silica": {"k_w_A": 120.0, "S_A": 3.0, "k_w_B": 5.0, "S_B": 1.2}
+    },
+    "Cafeína + Loratadina": {
+        "C18": {"k_w_A": 10.0, "S_A": 2.3, "k_w_B": 300.0, "S_B": 3.5},
+        "Silica": {"k_w_A": 100.0, "S_A": 2.5, "k_w_B": 3.0, "S_B": 1.0}
+    },
+    "Ácido Acetilsalicílico + Naproxeno": {
+        "C18": {"k_w_A": 18.0, "S_A": 2.8, "k_w_B": 140.0, "S_B": 2.9},
+        "Silica": {"k_w_A": 110.0, "S_A": 2.8, "k_w_B": 6.0, "S_B": 1.1}
+    },
+    "Ranitidina + Omeprazol": {
+        "C18": {"k_w_A": 8.0, "S_A": 2.2, "k_w_B": 110.0, "S_B": 2.7},
+        "Silica": {"k_w_A": 90.0, "S_A": 2.4, "k_w_B": 8.0, "S_B": 1.2}
+    }
+}
+
 def run_spe_simulation(params: SPEParams) -> SPESimResult:
     warnings = []
     errors = []
 
     # Cartucho de 100 mg estándar: volumen muerto de fase móvil (Vm) ≈ 0.3 mL
     V_m = 0.3  
+
+    # Resolve analyte names based on mixture
+    mixture_name = params.analyte_mixture or "Paracetamol + Ibuprofeno"
+    from hplc_engine import ANALYTE_MIXTURES
+    
+    if mixture_name in ANALYTE_MIXTURES:
+        analyte_a_name = ANALYTE_MIXTURES[mixture_name]["analyte_a"]
+        analyte_b_name = ANALYTE_MIXTURES[mixture_name]["analyte_b"]
+    else:
+        analyte_a_name = params.analyte_a_name
+        analyte_b_name = params.analyte_b_name
 
     # 1. EVALUAR ACONDICIONAMIENTO (Activación de cadenas alquílicas o sitios polares)
     cond_factor = 1.0
@@ -116,15 +147,12 @@ def run_spe_simulation(params: SPEParams) -> SPESimResult:
             )
 
     # 2. MODELADO DE RETENCIÓN EN CARGA Y LAVADO (Darcy y Partición SPE)
-    # Definimos constantes de reparto cromatográficas para C18
-    # Paracetamol es muy polar (logP=0.46) -> Retención baja en C18
-    # Ibuprofeno es apolar (logP=3.5) -> Retención muy alta en C18
-    if params.sorbent_type == "C18":
-        k_w_A, S_A = 15.0, 2.6
-        k_w_B, S_B = 180.0, 3.2
-    else:  # Silica (Normal Phase - Retiene compuestos polares)
-        k_w_A, S_A = 120.0, 3.0  # Paracetamol (polar) se retiene fuertemente
-        k_w_B, S_B = 5.0, 1.2    # Ibuprofeno (apolar) casi no se retiene
+    # Definimos constantes de reparto cromatográficas dinámicas
+    coeffs = SPE_ANALYTE_COEFFS.get(mixture_name, SPE_ANALYTE_COEFFS["Paracetamol + Ibuprofeno"])[params.sorbent_type]
+    k_w_A = coeffs["k_w_A"]
+    S_A = coeffs["S_A"]
+    k_w_B = coeffs["k_w_B"]
+    S_B = coeffs["S_B"]
 
     # PASO DE CARGA
     # Matriz del solvente de la muestra
@@ -227,16 +255,16 @@ def run_spe_simulation(params: SPEParams) -> SPESimResult:
         if params.washing_organic_pct > 30.0 and recovered_A < 40.0:
             warnings.append(
                 f"Pérdida en Lavado: El porcentaje orgánico del lavado ({params.washing_organic_pct}%) "
-                "es muy alto para el Paracetamol (polar). Se eluyó y perdió en el lavado en lugar de elución."
+                f"es muy alto para el {analyte_a_name} (polar). Se eluyó y perdió en el lavado en lugar de elución."
             )
         if params.elution_organic_pct < 60.0 and recovered_B < 50.0:
             warnings.append(
                 f"Elución incompleta: El solvente de elución ({params.elution_organic_pct}%) es demasiado débil "
-                "para romper la interacción hidrofóbica del Ibuprofeno con la C18. Aumenta el % orgánico."
+                f"para romper la interacción hidrofóbica del {analyte_b_name} con la C18. Aumenta el % orgánico."
             )
 
     result_a = SPEAnalyteResult(
-        name=params.analyte_a_name,
+        name=analyte_a_name,
         percent_adsorbed=round(ads_A, 2),
         percent_washed_out=round(lost_wash_A, 2),
         percent_recovered=round(recovered_A, 2),
@@ -244,7 +272,7 @@ def run_spe_simulation(params: SPEParams) -> SPESimResult:
     )
 
     result_b = SPEAnalyteResult(
-        name=params.analyte_b_name,
+        name=analyte_b_name,
         percent_adsorbed=round(ads_B, 2),
         percent_washed_out=round(lost_wash_B, 2),
         percent_recovered=round(recovered_B, 2),

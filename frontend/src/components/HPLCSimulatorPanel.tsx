@@ -29,6 +29,7 @@ interface HPLCState {
   organicModifierPct: number;
   flowRateMlMin: number;
   ovenTempC: number;
+  analyteMixture?: string;
 }
 
 interface HPLCPeak {
@@ -82,12 +83,36 @@ const SOLVENT_INFO: Record<SolventType, { label: string; color: string; desc: st
   MeOH: { label: "Metanol (MeOH)", color: "#38bdf8", desc: "Solvente prótico, mayor viscosidad mezcla, elución más lenta." }
 };
 
+const ANALYTE_MIXTURES: Record<string, { analyte_a: string; analyte_b: string; ACN: { k_w_A: number; S_A: number; k_w_B: number; S_B: number }; MeOH: { k_w_A: number; S_A: number; k_w_B: number; S_B: number } }> = {
+  "Paracetamol + Ibuprofeno": {
+    analyte_a: "Paracetamol", analyte_b: "Ibuprofeno",
+    ACN: { k_w_A: 12.0, S_A: 2.6, k_w_B: 45.0, S_B: 3.1 },
+    MeOH: { k_w_A: 16.0, S_A: 1.9, k_w_B: 65.0, S_B: 2.4 }
+  },
+  "Cafeína + Loratadina": {
+    analyte_a: "Cafeína", analyte_b: "Loratadina",
+    ACN: { k_w_A: 8.0, S_A: 2.3, k_w_B: 85.0, S_B: 3.5 },
+    MeOH: { k_w_A: 11.0, S_A: 1.7, k_w_B: 110.0, S_B: 2.8 }
+  },
+  "Ácido Acetilsalicílico + Naproxeno": {
+    analyte_a: "Ácido Acetilsalicílico", analyte_b: "Naproxeno",
+    ACN: { k_w_A: 15.0, S_A: 2.8, k_w_B: 35.0, S_B: 2.9 },
+    MeOH: { k_w_A: 20.0, S_A: 2.1, k_w_B: 50.0, S_B: 2.2 }
+  },
+  "Ranitidina + Omeprazol": {
+    analyte_a: "Ranitidina", analyte_b: "Omeprazol",
+    ACN: { k_w_A: 6.0, S_A: 2.2, k_w_B: 28.0, S_B: 2.7 },
+    MeOH: { k_w_A: 9.0, S_A: 1.6, k_w_B: 40.0, S_B: 2.1 }
+  }
+};
+
 const HPLC_INITIAL: HPLCState = {
   columnKey: "C18_150mm_3.5um",
   mobilePhaseSolvent: "ACN",
   organicModifierPct: 55.0,
   flowRateMlMin: 1.0,
   ovenTempC: 30.0,
+  analyteMixture: "Paracetamol + Ibuprofeno"
 };
 
 // ─── MOTOR LOCAL FALLBACK HPLC ────────────────────────────────
@@ -114,7 +139,6 @@ function localHPLCSimulation(s: HPLCState): HPLCMetrics {
   // Darcy ΔP
   const pressure_mpa = (1000.0 * eta * col.L * u) / (1000.0 * (col.dp ** 2));
   const pressure_bar = pressure_mpa * 10.0;
-  const pressure_ok = pressure_mpa <= col.maxP;
 
   // Difusión Stokes-Einstein
   const Dm = 1.0e-3 * ((s.ovenTempC + 273.15) / 298.15) * (0.89 / eta);
@@ -129,10 +153,16 @@ function localHPLCSimulation(s: HPLCState): HPLCMetrics {
 
   // Retención
   const mult = { C18: 1.0, C8: 0.75, Cyano: 0.45 }[col.chem as SorbentChemistry] || 1.0;
-  const k_w_A = s.mobilePhaseSolvent === "ACN" ? 12.0 : 16.0;
-  const S_A = s.mobilePhaseSolvent === "ACN" ? 2.6 : 1.9;
-  const k_w_B = s.mobilePhaseSolvent === "ACN" ? 45.0 : 65.0;
-  const S_B = s.mobilePhaseSolvent === "ACN" ? 3.1 : 2.4;
+  const mixKey = s.analyteMixture || "Paracetamol + Ibuprofeno";
+  const mix = ANALYTE_MIXTURES[mixKey] || ANALYTE_MIXTURES["Paracetamol + Ibuprofeno"];
+  const analyte_a_name = mix.analyte_a;
+  const analyte_b_name = mix.analyte_b;
+  const solvData = mix[s.mobilePhaseSolvent];
+  
+  const k_w_A = solvData.k_w_A;
+  const S_A = solvData.S_A;
+  const k_w_B = solvData.k_w_B;
+  const S_B = solvData.S_B;
 
   const k_A = k_w_A * mult * Math.pow(10, -S_A * C);
   const k_B = k_w_B * mult * Math.pow(10, -S_B * C);
@@ -159,9 +189,36 @@ function localHPLCSimulation(s: HPLCState): HPLCMetrics {
   const warnings: string[] = [];
   const errors: string[] = [];
 
-  if (pressure_mpa > col.maxP) {
-    errors.push(`¡EXCESO DE PRESIÓN! Límite de columna: ${col.maxP} MPa.`);
+  const is_uhplc = col.dp < 2.0;
+  let pressure_ok = true;
+  let temperature_ok = true;
+
+  if (is_uhplc) {
+    temperature_ok = s.ovenTempC <= 60.0;
+    if (!temperature_ok) {
+      errors.push(`¡ERROR DE TEMPERATURA CRÍTICA! La temperatura del horno (${s.ovenTempC}°C) excede los 60°C permitidos para la técnica UHPLC.`);
+    }
+  } else {
+    temperature_ok = s.ovenTempC <= 45.0;
+    if (!temperature_ok) {
+      errors.push(`¡ERROR DE TEMPERATURA CRÍTICA! La temperatura del horno (${s.ovenTempC}°C) excede los 45°C permitidos para la técnica HPLC estándar.`);
+    }
   }
+
+  if (is_uhplc) {
+    pressure_ok = pressure_mpa <= 130.0;
+    if (!pressure_ok) {
+      errors.push(`¡ERROR DE PRESIÓN CRÍTICA! La contrapresión de ${pressure_bar.toFixed(1)} bar excede el límite estructural de UHPLC (1300 bar). Peligro de daño físico.`);
+    } else if (pressure_bar > 1000.0) {
+      warnings.push(`¡ADVERTENCIA DE PRESIÓN CRÍTICA! La contrapresión de ${pressure_bar.toFixed(1)} bar supera el límite de operación normal (1000 bar) de UHPLC.`);
+    }
+  } else {
+    pressure_ok = pressure_mpa <= 40.0;
+    if (!pressure_ok) {
+      errors.push(`¡ERROR DE PRESIÓN CRÍTICA! La contrapresión de ${pressure_bar.toFixed(1)} bar excede los 400 bar permitidos para HPLC estándar. Flujo interrumpido.`);
+    }
+  }
+
   if (rs < 1.50) {
     warnings.push(`Rs = ${rs.toFixed(2)} — Baja resolución (USP exige Rs ≥ 1.50).`);
   }
@@ -178,14 +235,14 @@ function localHPLCSimulation(s: HPLCState): HPLCMetrics {
     backpressure_mpa: pressure_mpa,
     backpressure_bar: pressure_bar,
     pressure_ok,
-    temperature_ok: s.ovenTempC <= 80,
+    temperature_ok,
     reduced_velocity_nu: nu,
     reduced_hetp_h: h,
     hetp_mm: hetp,
     n_plates: N,
     rs,
     peak_a: {
-      analyte_name: "Paracetamol",
+      analyte_name: analyte_a_name,
       retention_time_min: t_R_A,
       retention_factor_k: k_A,
       peak_width_min: w_a,
@@ -195,7 +252,7 @@ function localHPLCSimulation(s: HPLCState): HPLCMetrics {
       area_signal: 10.0
     },
     peak_b: {
-      analyte_name: "Ibuprofeno",
+      analyte_name: analyte_b_name,
       retention_time_min: t_R_B,
       retention_factor_k: k_B,
       peak_width_min: w_b,
@@ -385,7 +442,8 @@ export default function HPLCSimulatorPanel({
             mobile_phase_solvent: state.mobilePhaseSolvent,
             organic_modifier_pct: state.organicModifierPct,
             flow_rate_ml_min: state.flowRateMlMin,
-            oven_temp_c: state.ovenTempC
+            oven_temp_c: state.ovenTempC,
+            analyte_mixture: state.analyteMixture || "Paracetamol + Ibuprofeno"
           }
         }));
       };
@@ -543,15 +601,15 @@ export default function HPLCSimulatorPanel({
                 <YAxis stroke="#484f58" tick={{ fontSize: 9, fill: "#8b949e" }}/>
                 <Tooltip contentStyle={{ background: "#0d1117", border: "1px solid #30363d", fontSize: 10 }}/>
                 <Area type="monotone" dataKey="peak_a" stroke="#f87171" strokeWidth={1.5}
-                  fill="url(#pA)" name="Paracetamol (Polar)"/>
+                  fill="url(#pA)" name={`${metrics.peak_a.analyte_name || "Paracetamol"} (Polar)`}/>
                 <Area type="monotone" dataKey="peak_b" stroke={solventInfo.color} strokeWidth={1.5}
-                  fill="url(#pB)" name="Ibuprofeno (Apolar)"/>
+                  fill="url(#pB)" name={`${metrics.peak_b.analyte_name || "Ibuprofeno"} (Apolar)`}/>
               </AreaChart>
             </ResponsiveContainer>
             <div className="flex gap-6 justify-center mt-2">
-              <span className="text-red-400 text-[10px] font-bold">── Paracetamol (k' = {metrics.peak_a.retention_factor_k.toFixed(2)})</span>
+              <span className="text-red-400 text-[10px] font-bold">── {metrics.peak_a.analyte_name || "Paracetamol"} (k' = {metrics.peak_a.retention_factor_k.toFixed(2)})</span>
               <span className="text-[10px] font-bold" style={{ color: solventInfo.color }}>
-                ── Ibuprofeno (k' = {metrics.peak_b.retention_factor_k.toFixed(2)})
+                ── {metrics.peak_b.analyte_name || "Ibuprofeno"} (k' = {metrics.peak_b.retention_factor_k.toFixed(2)})
               </span>
             </div>
           </div>
@@ -581,6 +639,18 @@ export default function HPLCSimulatorPanel({
                   onChange={e => updateState({ columnKey: e.target.value })}
                 >
                   {HPLC_COLUMNS.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
+                </select>
+              </div>
+
+              {/* Mezcla de Analitos */}
+              <div className="flex items-center gap-3">
+                <label className="text-slate-500 w-28 font-bold text-[10px]">Mezcla USP (Muestra):</label>
+                <select
+                  className="flex-1 bg-[#0d1117] border border-[#30363d] rounded-lg px-2 py-1.5 text-slate-300 text-[11px] outline-none"
+                  value={state.analyteMixture || "Paracetamol + Ibuprofeno"}
+                  onChange={e => updateState({ analyteMixture: e.target.value })}
+                >
+                  {Object.keys(ANALYTE_MIXTURES).map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
               </div>
 
@@ -716,7 +786,7 @@ export default function HPLCSimulatorPanel({
             <div className="space-y-2 text-[10px]">
               {/* Analito A */}
               <div className="border-b border-[#1b2028] pb-2">
-                <p className="text-red-400 font-bold">Paracetamol (Pico A)</p>
+                <p className="text-red-400 font-bold">{metrics.peak_a.analyte_name || "Paracetamol"} (Pico A)</p>
                 <div className="grid grid-cols-2 gap-1 text-[9px] text-slate-400 mt-1">
                   <span>tR: <strong>{metrics.peak_a.retention_time_min.toFixed(2)} min</strong></span>
                   <span>T (cola): <strong>{metrics.peak_a.tailing_factor_usp.toFixed(2)}</strong></span>
@@ -727,7 +797,7 @@ export default function HPLCSimulatorPanel({
 
               {/* Analito B */}
               <div>
-                <p className="text-blue-400 font-bold">Ibuprofeno (Pico B)</p>
+                <p className="text-blue-400 font-bold">{metrics.peak_b.analyte_name || "Ibuprofeno"} (Pico B)</p>
                 <div className="grid grid-cols-2 gap-1 text-[9px] text-slate-400 mt-1">
                   <span>tR: <strong>{metrics.peak_b.retention_time_min.toFixed(2)} min</strong></span>
                   <span>T (cola): <strong>{metrics.peak_b.tailing_factor_usp.toFixed(2)}</strong></span>
